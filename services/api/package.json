@@ -1,0 +1,21 @@
+{
+  "name": "@ttaylor/api",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@trpc/server": "^11.0.0",
+    "@prisma/client": "^6.0.0",
+    "zod": "^3.23.0",
+    "superjson": "^2.2.0",
+    "@clerk/backend": "^1.0.0",
+    "@ttaylor/domain": "workspace:*",
+    "@ttaylor/auth": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "prisma": "^6.0.0"
+  }
+}

@@ -1,0 +1,51 @@
+version: "3.8"
+
+# Ttaylor Family Law Platform -- Local Development Services
+# Usage: docker-compose -f ops/docker-compose.yml up -d
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: ttaylor-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ttaylor
+      POSTGRES_USER: ttaylor
+      POSTGRES_PASSWORD: ttaylor_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - ttaylor-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ttaylor -d ttaylor"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: ttaylor-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  adminer:
+    image: adminer:latest
+    container_name: ttaylor-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  ttaylor-pgdata:
+    driver: local
