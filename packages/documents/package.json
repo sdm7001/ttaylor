@@ -2,6 +2,16 @@
   "name": "@ttaylor/documents",
   "version": "0.1.0",
   "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
   "main": "./src/index.ts",
-  "types": "./src/index.ts"
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@ttaylor/domain": "workspace:*",
+    "handlebars": "^4.7.8"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
 }

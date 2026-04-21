@@ -2,6 +2,13 @@
   "name": "@ttaylor/workflows",
   "version": "0.1.0",
   "private": true,
+  "exports": { ".": "./src/index.ts" },
   "main": "./src/index.ts",
-  "types": "./src/index.ts"
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@ttaylor/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
 }
