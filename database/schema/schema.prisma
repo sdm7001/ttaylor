@@ -148,6 +148,7 @@ model User {
   tasks              Task[]            @relation("TaskOwner")
   auditEvents        AuditEvent[]
   documentApprovals  DocumentApproval[]
+  notes              Note[]
 
   @@map("users")
 }
@@ -367,6 +368,7 @@ model Matter {
   settlementProposals SettlementProposal[]
   orders             Order[]
   portalAccess       PortalAccess[]
+  notes              Note[]
 
   @@map("matters")
 }
@@ -835,6 +837,25 @@ model ComplianceItem {
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@map("compliance_items")
+}
+
+// ─── Notes ────────────────────────────────────────────────────────────────────
+
+model Note {
+  id            String    @id @default(cuid())
+  matterId      String
+  authorId      String
+  content       String    @db.Text
+  isPrivileged  Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  matter Matter @relation(fields: [matterId], references: [id], onDelete: Cascade)
+  author User   @relation(fields: [authorId], references: [id])
+
+  @@index([matterId, createdAt])
+  @@map("notes")
 }
 
 // ─── Audit and Files ──────────────────────────────────────────────────────────

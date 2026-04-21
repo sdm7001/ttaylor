@@ -188,6 +188,10 @@ function DocumentsTab({ matterId }: { matterId: string }) {
   const { data: docData, isLoading } = trpc.documents.list.useQuery({ matterId });
   const documents = docData?.items ?? [];
 
+  // Fetch shared documents to show "Shared" badge
+  const { data: sharedDocs } = trpc.portal.getSharedDocuments.useQuery({ matterId });
+  const sharedDocIds = new Set((sharedDocs ?? []).map((d: { id: string }) => d.id));
+
   const submitForReview = trpc.documents.submitForReview.useMutation({
     onSuccess: () => {
       utils.documents.list.invalidate({ matterId });
@@ -203,6 +207,12 @@ function DocumentsTab({ matterId }: { matterId: string }) {
   const rejectDoc = trpc.documents.reject.useMutation({
     onSuccess: () => {
       utils.documents.list.invalidate({ matterId });
+    },
+  });
+
+  const shareWithClient = trpc.portal.shareDocument.useMutation({
+    onSuccess: () => {
+      utils.portal.getSharedDocuments.invalidate({ matterId });
     },
   });
 
@@ -285,6 +295,38 @@ function DocumentsTab({ matterId }: { matterId: string }) {
                 >
                   Submit for Review
                 </Button>
+              )}
+
+              {/* APPROVED or FILED: Share with Client */}
+              {(doc.lifecycleStatus === 'APPROVED' || doc.lifecycleStatus === 'FILED') && (
+                sharedDocIds.has(doc.id) ? (
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: '#16a34a',
+                      backgroundColor: '#f0fdf4',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                    }}
+                  >
+                    Shared
+                  </span>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      shareWithClient.mutate({
+                        matterId,
+                        documentId: doc.id,
+                      });
+                    }}
+                    disabled={shareWithClient.isPending}
+                  >
+                    Share with Client
+                  </Button>
+                )
               )}
 
               {/* INTERNAL_REVIEW or ATTORNEY_REVIEW_REQUIRED: Approve / Reject */}
@@ -864,17 +906,202 @@ function FinancialTab() {
   );
 }
 
-function NotesTab() {
-  // TODO: integrate notes/activity feed
+function NotesTab({ matterId }: { matterId: string }) {
+  const utils = trpc.useUtils();
+  const [showForm, setShowForm] = useState(false);
+  const [noteContent, setNoteContent] = useState('');
+  const [isPrivileged, setIsPrivileged] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const { data: notes, isLoading } = trpc.notes.listForMatter.useQuery({ matterId });
+
+  const createNote = trpc.notes.create.useMutation({
+    onSuccess: () => {
+      utils.notes.listForMatter.invalidate({ matterId });
+      setShowForm(false);
+      setNoteContent('');
+      setIsPrivileged(false);
+      setFormError(null);
+    },
+    onError: (err) => {
+      setFormError(err.message || 'Failed to create note');
+    },
+  });
+
+  function handleSubmit() {
+    setFormError(null);
+    if (noteContent.trim().length < 10) {
+      setFormError('Note must be at least 10 characters');
+      return;
+    }
+    createNote.mutate({
+      matterId,
+      content: noteContent.trim(),
+      isPrivileged,
+    });
+  }
+
+  if (isLoading) {
+    return <LoadingSpinner size="md" />;
+  }
+
+  const fieldStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '8px 12px',
+    fontSize: '14px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '6px',
+    outline: 'none',
+    color: '#0f172a',
+    backgroundColor: '#ffffff',
+    boxSizing: 'border-box' as const,
+    fontFamily: 'inherit',
+    resize: 'vertical' as const,
+    minHeight: '100px',
+  };
+
   return (
-    <EmptyState
-      heading="No notes yet"
-      body="Add notes to keep a running record of case activity. (TODO)"
-      actionLabel="Add Note"
-      onAction={() => {
-        /* TODO: open add note dialog */
-      }}
-    />
+    <div>
+      {/* Add Note button */}
+      <div style={{ marginBottom: '16px' }}>
+        <Button variant="primary" size="sm" onClick={() => setShowForm(!showForm)}>
+          {showForm ? 'Cancel' : 'Add Note'}
+        </Button>
+      </div>
+
+      {/* Inline create form */}
+      {showForm && (
+        <Card title="New Note">
+          <div style={{ maxWidth: '640px' }}>
+            <div style={{ marginBottom: '12px' }}>
+              <label
+                style={{
+                  display: 'block',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: '#0f172a',
+                  marginBottom: '4px',
+                }}
+              >
+                Note Content <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <textarea
+                style={fieldStyle}
+                value={noteContent}
+                onChange={(e) => setNoteContent(e.target.value)}
+                placeholder="Enter note content (min 10 characters)..."
+              />
+            </div>
+
+            <div style={{ marginBottom: '12px' }}>
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                  color: '#0f172a',
+                  cursor: 'pointer',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={isPrivileged}
+                  onChange={(e) => setIsPrivileged(e.target.checked)}
+                  style={{ width: '16px', height: '16px' }}
+                />
+                Mark as privileged (attorney-client privilege)
+              </label>
+            </div>
+
+            {formError && (
+              <div style={{ marginBottom: '12px', fontSize: '13px', color: '#dc2626' }}>
+                {formError}
+              </div>
+            )}
+
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleSubmit}
+              disabled={createNote.isPending}
+            >
+              {createNote.isPending ? 'Saving...' : 'Save Note'}
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {/* Notes list */}
+      {!notes || notes.length === 0 ? (
+        !showForm && (
+          <EmptyState
+            heading="No notes yet"
+            body="Add the first note."
+            actionLabel="Add Note"
+            onAction={() => setShowForm(true)}
+          />
+        )
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          {notes.map((note: any) => (
+            <Card key={note.id}>
+              <div>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    marginBottom: '8px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 600, color: '#0f172a' }}>
+                      {note.author?.firstName} {note.author?.lastName}
+                    </span>
+                    <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+                      {new Date(note.createdAt).toLocaleString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  </div>
+                  {note.isPrivileged && (
+                    <span
+                      style={{
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        color: '#7c3aed',
+                        backgroundColor: '#f5f3ff',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                      }}
+                    >
+                      PRIVILEGED
+                    </span>
+                  )}
+                </div>
+                <div
+                  style={{
+                    fontSize: '14px',
+                    color: '#334155',
+                    lineHeight: '1.5',
+                    whiteSpace: 'pre-wrap',
+                  }}
+                >
+                  {note.content}
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -970,7 +1197,7 @@ export default function MatterDetailPage() {
       case 'financial':
         return <FinancialTab />;
       case 'notes':
-        return <NotesTab />;
+        return <NotesTab matterId={matterId} />;
       default:
         return null;
     }

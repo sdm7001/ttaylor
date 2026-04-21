@@ -16,6 +16,7 @@ import { UserButton } from '@clerk/nextjs';
 const navLinks = [
   { label: 'My Matters', href: '/' },
   { label: 'Messages', href: '/messages' },
+  { label: 'Intake', href: '/intake' },
 ] as const;
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {

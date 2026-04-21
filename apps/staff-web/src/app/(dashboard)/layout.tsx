@@ -18,10 +18,12 @@ import {
   BarChart3,
   Settings,
   ShieldCheck,
+  AlertTriangle,
 } from 'lucide-react';
 
 const navItems = [
   { label: 'Dashboard', href: '/', icon: LayoutDashboard },
+  { label: 'Search', href: '/search', icon: Search },
   { label: 'Intake', href: '/intake', icon: ClipboardList },
   { label: 'Matters', href: '/matters', icon: Briefcase },
   { label: 'Contacts', href: '/contacts', icon: Users },
@@ -32,6 +34,7 @@ const navItems = [
   { label: 'Orders', href: '/orders', icon: Scale },
   { label: 'Financial', href: '/financial', icon: DollarSign },
   { label: 'Reports', href: '/reports', icon: BarChart3 },
+  { label: 'Risk View', href: '/risk', icon: AlertTriangle },
   { label: 'Settings', href: '/settings', icon: Settings },
   { label: 'Audit Log', href: '/audit', icon: ShieldCheck },
 ] as const;
