@@ -1,22 +1,26 @@
 'use client';
 
 import React from 'react';
-import { PageHeader, Card, DataTable, EmptyState } from '@ttaylor/ui';
+import Link from 'next/link';
+import { PageHeader, Card, DataTable, EmptyState, LoadingSpinner, StatusPill } from '@ttaylor/ui';
 import type { DataTableColumn } from '@ttaylor/ui';
 import { DollarSign, Landmark, CreditCard } from 'lucide-react';
+import { trpc } from '../../../lib/trpc';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-interface MatterFinancialRow {
+interface MatterRow {
   id: string;
-  matterTitle: string;
-  clientName: string;
+  title: string | null;
   causeNumber: string | null;
-  totalBilled: number;
-  totalPaid: number;
-  outstandingBalance: number;
+  status: string;
+  matterType: { name: string } | null;
+  assignments: Array<{
+    role?: string;
+    user: { id: string; firstName: string; lastName: string };
+  }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -95,88 +99,63 @@ function SummaryCard({
 // Table columns
 // ---------------------------------------------------------------------------
 
-const columns: DataTableColumn<MatterFinancialRow>[] = [
+const columns: DataTableColumn<MatterRow>[] = [
   {
-    key: 'matterTitle',
+    key: 'title',
     header: 'Matter',
-    render: (row) => (
-      <div>
-        <div style={{ fontWeight: 500, color: '#0f172a', fontSize: '14px' }}>
-          {row.matterTitle}
-        </div>
-        {row.causeNumber && (
-          <div
-            style={{
-              fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
-              fontSize: '11px',
-              color: '#94a3b8',
-              marginTop: '2px',
-            }}
-          >
-            {row.causeNumber}
-          </div>
-        )}
-      </div>
-    ),
-  },
-  {
-    key: 'clientName',
-    header: 'Client',
-    render: (row) => (
-      <span style={{ fontSize: '13px', color: '#334155' }}>{row.clientName}</span>
-    ),
-    width: '160px',
-  },
-  {
-    key: 'totalBilled',
-    header: 'Billed',
-    render: (row) => (
-      <span style={{ fontSize: '13px', fontWeight: 500, color: '#0f172a' }}>
-        {formatCurrency(row.totalBilled)}
-      </span>
-    ),
-    width: '120px',
-  },
-  {
-    key: 'totalPaid',
-    header: 'Paid',
-    render: (row) => (
-      <span style={{ fontSize: '13px', color: '#16a34a' }}>
-        {formatCurrency(row.totalPaid)}
-      </span>
-    ),
-    width: '120px',
-  },
-  {
-    key: 'outstandingBalance',
-    header: 'Outstanding',
     render: (row) => {
-      const hasBalance = row.outstandingBalance > 0;
+      const typeName = row.matterType?.name ?? '--';
       return (
-        <span
-          style={{
-            fontSize: '13px',
-            fontWeight: hasBalance ? 700 : 400,
-            color: hasBalance ? '#dc2626' : '#16a34a',
-          }}
-        >
-          {formatCurrency(row.outstandingBalance)}
+        <div>
+          <div style={{ fontWeight: 500, color: '#0f172a', fontSize: '14px' }}>
+            {row.title ?? typeName}
+          </div>
+          {row.causeNumber && (
+            <div
+              style={{
+                fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+                fontSize: '11px',
+                color: '#94a3b8',
+                marginTop: '2px',
+              }}
+            >
+              {row.causeNumber}
+            </div>
+          )}
+        </div>
+      );
+    },
+  },
+  {
+    key: 'status',
+    header: 'Status',
+    render: (row) => <StatusPill status={row.status} />,
+    width: '130px',
+  },
+  {
+    key: 'attorney',
+    header: 'Attorney',
+    render: (row) => {
+      const attorney = row.assignments?.find(
+        (a: { role?: string }) => a.role === 'ATTORNEY'
+      );
+      return (
+        <span style={{ fontSize: '13px', color: '#334155' }}>
+          {attorney?.user
+            ? `${attorney.user.firstName} ${attorney.user.lastName}`
+            : '--'}
         </span>
       );
     },
-    width: '130px',
+    width: '160px',
   },
   {
     key: 'actions',
     header: '',
     render: (row) => (
-      <a
+      <Link
         href={`/financial/${row.id}`}
-        onClick={(e) => {
-          e.stopPropagation();
-          // TODO: navigate to /financial/[matterId] ledger view
-          console.log('View ledger for matter:', row.id);
-        }}
+        onClick={(e) => e.stopPropagation()}
         style={{
           fontSize: '12px',
           color: '#1565C0',
@@ -185,10 +164,10 @@ const columns: DataTableColumn<MatterFinancialRow>[] = [
           cursor: 'pointer',
         }}
       >
-        View Ledger
-      </a>
+        View Financials
+      </Link>
     ),
-    width: '100px',
+    width: '120px',
   },
 ];
 
@@ -197,22 +176,20 @@ const columns: DataTableColumn<MatterFinancialRow>[] = [
 // ---------------------------------------------------------------------------
 
 export default function FinancialPage() {
-  // TODO: Replace with tRPC queries:
-  //   trpc.financial.getMatterSummary.useQuery(...)
-  //   or a dedicated aggregate endpoint
-  const matterRows: MatterFinancialRow[] = [];
-  const loading = false;
+  const { data: mattersData, isLoading } = trpc.matters.list.useQuery({ limit: 100 });
 
-  // TODO: Replace with actual aggregated data from API
-  const totalOutstanding = 0;
-  const totalInTrust = 0;
-  const paymentsThisMonth = 0;
+  const matterRows: MatterRow[] = (mattersData?.items ?? []) as unknown as MatterRow[];
 
   return (
     <>
       <PageHeader title="Financial" />
 
       {/* Summary cards */}
+      {/*
+       * TODO: These summary values require a `financial.getPortfolioSummary` aggregate
+       * endpoint that sums across all matters. That endpoint does not exist yet.
+       * Showing "--" to be honest rather than displaying fake zeros.
+       */}
       <div
         style={{
           display: 'grid',
@@ -224,38 +201,41 @@ export default function FinancialPage() {
         <SummaryCard
           icon={<DollarSign size={20} />}
           label="Total Outstanding"
-          value={formatCurrency(totalOutstanding)}
+          value="--"
           color="#dc2626"
         />
         <SummaryCard
           icon={<Landmark size={20} />}
           label="Total in Trust"
-          value={formatCurrency(totalInTrust)}
+          value="--"
           color="#7c3aed"
         />
         <SummaryCard
           icon={<CreditCard size={20} />}
           label="Payments This Month"
-          value={formatCurrency(paymentsThisMonth)}
+          value="--"
           color="#16a34a"
         />
       </div>
 
-      {/* Matters with financial activity */}
-      {matterRows.length === 0 && !loading ? (
+      {/* Matters list -- each row links to per-matter financial detail */}
+      {isLoading ? (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
+          <LoadingSpinner size="lg" />
+        </div>
+      ) : matterRows.length === 0 ? (
         <EmptyState
-          heading="No financial activity"
-          body="Financial data will appear here when invoices and payments are recorded for matters."
+          heading="No matters found"
+          body="Financial data will appear here when matters are created and invoices or payments are recorded."
         />
       ) : (
-        <DataTable<MatterFinancialRow>
+        <DataTable<MatterRow>
           columns={columns}
           data={matterRows}
-          loading={loading}
+          loading={false}
           emptyMessage="No matters with financial activity"
           onRowClick={(row) => {
-            // TODO: navigate to /financial/[matterId] ledger
-            console.log('Navigate to financial detail:', row.id);
+            window.location.href = `/financial/${row.id}`;
           }}
           rowKey={(row) => row.id}
         />

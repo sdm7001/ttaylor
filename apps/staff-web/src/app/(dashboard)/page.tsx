@@ -1,15 +1,20 @@
+'use client';
+
 import React from 'react';
 import { PageHeader, Card, EmptyState } from '@ttaylor/ui';
 import { Briefcase, FileText, Send, CalendarDays, Activity } from 'lucide-react';
+import { trpc } from '@/lib/trpc';
 
 function StatCard({
   icon,
   label,
   value,
+  loading,
 }: {
   icon: React.ReactNode;
   label: string;
   value: number;
+  loading?: boolean;
 }) {
   return (
     <Card>
@@ -34,11 +39,11 @@ function StatCard({
             style={{
               fontSize: '24px',
               fontWeight: 700,
-              color: '#0f172a',
+              color: loading ? '#94a3b8' : '#0f172a',
               lineHeight: '32px',
             }}
           >
-            {value}
+            {loading ? '--' : value}
           </div>
           <div
             style={{
@@ -63,6 +68,22 @@ export default function DashboardPage() {
     day: 'numeric',
   });
 
+  // Active matters count -- query with ACTIVE status, limit 1 to minimise payload
+  const activeMatters = trpc.matters.list.useQuery(
+    { status: 'ACTIVE', limit: 1 },
+    { staleTime: 60_000 },
+  );
+
+  // Upcoming deadlines within 7 days
+  const upcomingDeadlines = trpc.calendar.getUpcoming.useQuery(
+    { days: 7, assignedToMe: false },
+    { staleTime: 60_000 },
+  );
+
+  const deadlineCount =
+    (upcomingDeadlines.data?.deadlines?.length ?? 0) +
+    (upcomingDeadlines.data?.courtEvents?.length ?? 0);
+
   return (
     <>
       <PageHeader title="Dashboard" subtitle={today} />
@@ -79,22 +100,28 @@ export default function DashboardPage() {
         <StatCard
           icon={<Briefcase size={20} />}
           label="Active Matters"
-          value={0} // TODO: fetch from API
+          value={activeMatters.data?.total ?? 0}
+          loading={activeMatters.isLoading}
         />
         <StatCard
           icon={<FileText size={20} />}
           label="Pending Documents"
-          value={0} // TODO: fetch from API
+          value={0}
+          // TODO: Needs a dashboard.getSummary aggregate endpoint to count
+          // documents in INTERNAL_REVIEW or ATTORNEY_REVIEW across all matters.
         />
         <StatCard
           icon={<Send size={20} />}
           label="Filing Queue"
-          value={0} // TODO: fetch from API
+          value={0}
+          // TODO: Needs a dashboard.getSummary aggregate endpoint to count
+          // filing packets in ASSEMBLING or READY_FOR_ATTORNEY_REVIEW status.
         />
         <StatCard
           icon={<CalendarDays size={20} />}
           label="Upcoming Deadlines"
-          value={0} // TODO: fetch from API
+          value={deadlineCount}
+          loading={upcomingDeadlines.isLoading}
         />
       </div>
 

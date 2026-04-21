@@ -2,27 +2,8 @@
 
 import React from 'react';
 import { PageHeader, Button, Card, EmptyState } from '@ttaylor/ui';
-import { Plus, CalendarDays, Clock, Gavel } from 'lucide-react';
-
-// ---------------------------------------------------------------------------
-// Types (matches tRPC calendar.getUpcoming response shape)
-// ---------------------------------------------------------------------------
-
-interface DeadlineRow {
-  id: string;
-  title: string;
-  dueAt: string; // ISO string from API
-  matter: { id: string; title: string; causeNumber: string | null } | null;
-  notes: string | null;
-}
-
-interface CourtEventRow {
-  id: string;
-  title: string;
-  startAt: string;
-  location: string | null;
-  matter: { id: string; title: string; causeNumber: string | null } | null;
-}
+import { Plus, Clock, Gavel } from 'lucide-react';
+import { trpc } from '@/lib/trpc';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -55,10 +36,13 @@ function formatDate(dateStr: string): string {
 // ---------------------------------------------------------------------------
 
 export default function CalendarPage() {
-  // TODO: Replace with tRPC query: trpc.calendar.getUpcoming.useQuery({ days: 14 })
-  const deadlines: DeadlineRow[] = [];
-  const courtEvents: CourtEventRow[] = [];
-  const loading = false;
+  const { data, isLoading } = trpc.calendar.getUpcoming.useQuery(
+    { days: 14, assignedToMe: false },
+    { staleTime: 60_000 },
+  );
+
+  const deadlines = data?.deadlines ?? [];
+  const courtEvents = data?.courtEvents ?? [];
 
   return (
     <>
@@ -89,14 +73,20 @@ export default function CalendarPage() {
           Upcoming Deadlines (Next 14 Days)
         </h2>
 
-        {deadlines.length === 0 ? (
+        {isLoading ? (
+          <Card>
+            <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: '14px' }}>
+              Loading deadlines...
+            </div>
+          </Card>
+        ) : deadlines.length === 0 ? (
           <EmptyState
             heading="No upcoming deadlines"
             body="All deadlines are either completed or further than 14 days out."
           />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {deadlines.map((deadline) => {
+            {deadlines.map((deadline: { id: string; title: string; dueAt: string; matter: { id: string; title: string; causeNumber: string | null } | null; notes: string | null }) => {
               const days = daysUntil(deadline.dueAt);
               const color = urgencyColor(days);
               return (
@@ -171,14 +161,20 @@ export default function CalendarPage() {
           Upcoming Court Dates
         </h2>
 
-        {courtEvents.length === 0 ? (
+        {isLoading ? (
+          <Card>
+            <div style={{ padding: '24px', textAlign: 'center', color: '#94a3b8', fontSize: '14px' }}>
+              Loading court events...
+            </div>
+          </Card>
+        ) : courtEvents.length === 0 ? (
           <EmptyState
             heading="No upcoming court dates"
             body="Court dates will appear here when scheduled for matters."
           />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {courtEvents.map((event) => (
+            {courtEvents.map((event: { id: string; title: string; startAt: string; location: string | null; matter: { id: string; title: string; causeNumber: string | null } | null }) => (
               <Card key={event.id}>
                 <div
                   style={{

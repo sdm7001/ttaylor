@@ -2,30 +2,25 @@
 
 import React from 'react';
 import Link from 'next/link';
-import { Card, StatusPill, EmptyState } from '@ttaylor/ui';
+import { Card, StatusPill, EmptyState, LoadingSpinner } from '@ttaylor/ui';
 import { Briefcase } from 'lucide-react';
+import { trpc } from '../../lib/trpc';
 
 /**
  * Client portal home page -- "Your Matters".
  *
- * Displays a list of matter cards showing matter type, status,
- * cause number (if available), and assigned attorney name.
- * Each card links to /matters/[id] for detail.
+ * Fetches the authenticated client's matters via tRPC and displays them
+ * as clickable cards. Each card links to /matters/[id] for detail.
+ *
+ * TODO: In production, the tRPC context should scope this query to only
+ * the matters belonging to the authenticated client via their portal_access
+ * record. Currently queries the matters endpoint directly (which relies on
+ * server-side permission checks to limit visibility).
  */
 
-// TODO: Replace with tRPC API call to fetch client's matters
-interface ClientMatter {
-  id: string;
-  title: string;
-  matterType: string;
-  status: string;
-  causeNumber?: string;
-  attorney?: { firstName: string; lastName: string };
-}
-
-const matters: ClientMatter[] = [];
-
 export default function PortalHomePage() {
+  const { data, isLoading, error } = trpc.matters.list.useQuery({ limit: 20 });
+
   return (
     <>
       <h1
@@ -40,62 +35,79 @@ export default function PortalHomePage() {
         Your Matters
       </h1>
 
-      {matters.length === 0 ? (
+      {isLoading ? (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
+          <LoadingSpinner size="lg" />
+        </div>
+      ) : error ? (
         <EmptyState
           icon={<Briefcase size={40} />}
-          title="No matters yet"
-          description="When your legal team opens a matter for your case, it will appear here."
+          heading="Unable to load matters"
+          body="There was an error loading your matters. Please try refreshing the page."
+        />
+      ) : !data?.items || data.items.length === 0 ? (
+        <EmptyState
+          icon={<Briefcase size={40} />}
+          heading="No matters yet"
+          body="When your legal team opens a matter for your case, it will appear here."
         />
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {matters.map((matter) => (
-            <Link
-              key={matter.id}
-              href={`/matters/${matter.id}`}
-              style={{ textDecoration: 'none', color: 'inherit' }}
-            >
-              <Card>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                    <span
-                      style={{
-                        fontSize: '15px',
-                        fontWeight: 600,
-                        color: '#0f172a',
-                      }}
-                    >
-                      {matter.matterType}
-                    </span>
-                    {matter.causeNumber && (
+          {data.items.map((matter) => {
+            const attorney = matter.assignments?.find(
+              (a: { role?: string }) => a.role === 'ATTORNEY'
+            );
+            const matterTypeName = matter.matterType?.name ?? matter.matterTypeId?.slice(0, 8) ?? 'Matter';
+
+            return (
+              <Link
+                key={matter.id}
+                href={`/matters/${matter.id}`}
+                style={{ textDecoration: 'none', color: 'inherit' }}
+              >
+                <Card>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                       <span
                         style={{
-                          fontSize: '13px',
-                          color: '#64748b',
-                          fontFamily:
-                            "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+                          fontSize: '15px',
+                          fontWeight: 600,
+                          color: '#0f172a',
                         }}
                       >
-                        {matter.causeNumber}
+                        {matterTypeName}
                       </span>
-                    )}
-                    {matter.attorney && (
-                      <span style={{ fontSize: '13px', color: '#64748b' }}>
-                        Attorney: {matter.attorney.firstName} {matter.attorney.lastName}
-                      </span>
-                    )}
-                  </div>
+                      {matter.causeNumber && (
+                        <span
+                          style={{
+                            fontSize: '13px',
+                            color: '#64748b',
+                            fontFamily:
+                              "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+                          }}
+                        >
+                          {matter.causeNumber}
+                        </span>
+                      )}
+                      {attorney?.user && (
+                        <span style={{ fontSize: '13px', color: '#64748b' }}>
+                          Attorney: {attorney.user.firstName} {attorney.user.lastName}
+                        </span>
+                      )}
+                    </div>
 
-                  <StatusPill status={matter.status} />
-                </div>
-              </Card>
-            </Link>
-          ))}
+                    <StatusPill status={matter.status} />
+                  </div>
+                </Card>
+              </Link>
+            );
+          })}
         </div>
       )}
     </>

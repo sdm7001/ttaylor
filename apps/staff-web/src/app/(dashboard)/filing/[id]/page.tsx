@@ -1,8 +1,8 @@
 'use client';
 
 import React from 'react';
-import { useParams } from 'next/navigation';
-import { PageHeader, Button, StatusPill, Card, EmptyState, Badge } from '@ttaylor/ui';
+import { useParams, useRouter } from 'next/navigation';
+import { PageHeader, Button, StatusPill, Card, EmptyState, Badge, LoadingSpinner } from '@ttaylor/ui';
 import {
   CheckCircle,
   XCircle,
@@ -11,7 +11,9 @@ import {
   ArrowRight,
   FileText,
   Star,
+  ArrowLeft,
 } from 'lucide-react';
+import { trpc } from '@/lib/trpc';
 
 /**
  * Filing packet detail page.
@@ -21,51 +23,10 @@ import {
  * - Right: packet info (court, cause number, filing type)
  *
  * Includes validation status section, attorney approval section,
- * and contextual action buttons.
+ * and contextual action buttons wired to real tRPC mutations.
  */
 
-// TODO: Replace with tRPC API data (filing.getPacket + filing.validatePacket)
-
-interface PacketItem {
-  id: string;
-  documentId: string;
-  documentTitle: string;
-  documentStatus: string;
-  isLeadDocument: boolean;
-  sortOrder: number;
-  filingCode?: string;
-}
-
-interface ValidationResult {
-  valid: boolean;
-  issues: string[];
-}
-
-interface PacketDetail {
-  id: string;
-  title: string;
-  status: string;
-  filingType: string;
-  courtName: string;
-  causeNumber: string;
-  matterId: string;
-  matterTitle: string;
-  preparedBy: { firstName: string; lastName: string };
-  approvedBy?: { firstName: string; lastName: string };
-  approvedAt?: string;
-  items: PacketItem[];
-  createdAt: string;
-  updatedAt: string;
-}
-
-// Placeholder data -- all empty arrays / null for initial scaffold
-const packet: PacketDetail | null = null;
-const validation: ValidationResult = { valid: false, issues: ['No data loaded'] };
-
-// Simulated user role check (in production, derive from Clerk session)
-const userRole = 'PARALEGAL'; // TODO: derive from auth context
-
-function ValidationSection({ validation }: { validation: ValidationResult }) {
+function ValidationSection({ validation }: { validation: { valid: boolean; issues: string[] } }) {
   return (
     <Card>
       <h3
@@ -169,38 +130,109 @@ function ValidationSection({ validation }: { validation: ValidationResult }) {
 }
 
 export default function FilingPacketDetailPage() {
-  const params = useParams();
-  const packetId = params.id as string;
+  const params = useParams<{ id: string }>();
+  const router = useRouter();
+  const packetId = params.id;
 
-  if (!packet) {
+  const utils = trpc.useUtils();
+
+  // Queries
+  const {
+    data: packet,
+    isLoading: packetLoading,
+    error: packetError,
+  } = trpc.filing.getPacket.useQuery({ id: packetId });
+
+  const { data: validation } = trpc.filing.validatePacket.useQuery(
+    { id: packetId },
+    { enabled: !!packet }, // only validate once packet is loaded
+  );
+
+  // Mutations
+  const submitForReview = trpc.filing.submitForAttorneyReview.useMutation({
+    onSuccess: () => {
+      utils.filing.getPacket.invalidate({ id: packetId });
+      utils.filing.validatePacket.invalidate({ id: packetId });
+    },
+  });
+
+  const attorneyApprove = trpc.filing.attorneyApprove.useMutation({
+    onSuccess: () => {
+      utils.filing.getPacket.invalidate({ id: packetId });
+      utils.filing.validatePacket.invalidate({ id: packetId });
+    },
+  });
+
+  const attorneyReject = trpc.filing.attorneyReject.useMutation({
+    onSuccess: () => {
+      utils.filing.getPacket.invalidate({ id: packetId });
+      utils.filing.validatePacket.invalidate({ id: packetId });
+    },
+  });
+
+  const submitToCourt = trpc.filing.submitToCourt.useMutation({
+    onSuccess: () => {
+      utils.filing.getPacket.invalidate({ id: packetId });
+      utils.filing.validatePacket.invalidate({ id: packetId });
+    },
+  });
+
+  // Loading state
+  if (packetLoading) {
+    return (
+      <>
+        <PageHeader title="Filing Packet" />
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            minHeight: '300px',
+          }}
+        >
+          <LoadingSpinner size="lg" />
+        </div>
+      </>
+    );
+  }
+
+  // Not found / error state
+  if (packetError || !packet) {
     return (
       <>
         <PageHeader title="Filing Packet" />
         <EmptyState
           icon={<Send size={40} />}
-          title="Loading..."
-          description={`Loading filing packet ${packetId}...`}
+          heading="Packet not found"
+          body={packetError?.message ?? `Filing packet ${packetId} could not be loaded.`}
+          actionLabel="Back to Filing Queue"
+          onAction={() => router.push('/filing')}
         />
       </>
     );
   }
 
-  const isAttorney = userRole === 'ATTORNEY';
+  // TODO: Detect user role from Clerk (useUser -> publicMetadata.role).
+  // For now, render all buttons -- the server enforces role requirements.
   const canSubmitForReview =
     packet.status === 'ASSEMBLING' || packet.status === 'ATTORNEY_REJECTED';
-  const canApprove =
-    isAttorney && packet.status === 'READY_FOR_ATTORNEY_REVIEW';
-  const canReject =
-    isAttorney && packet.status === 'READY_FOR_ATTORNEY_REVIEW';
-  const canSubmitToCourt =
-    isAttorney && packet.status === 'ATTORNEY_APPROVED';
+  const canApprove = packet.status === 'READY_FOR_ATTORNEY_REVIEW';
+  const canReject = packet.status === 'READY_FOR_ATTORNEY_REVIEW';
+  const canSubmitToCourt = packet.status === 'ATTORNEY_APPROVED';
 
   return (
     <>
       <PageHeader
         title={packet.title}
+        subtitle={`Packet for matter`}
         actions={
-          <StatusPill status={packet.status} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <StatusPill status={packet.status} />
+            <Button variant="ghost" size="sm" onClick={() => router.push('/filing')}>
+              <ArrowLeft size={16} style={{ marginRight: '4px' }} />
+              Back to Filing
+            </Button>
+          </div>
         }
       />
 
@@ -229,14 +261,15 @@ export default function FilingPacketDetailPage() {
           {packet.items.length === 0 ? (
             <EmptyState
               icon={<FileText size={32} />}
-              title="No documents"
-              description="Add attorney-approved documents to this filing packet."
+              heading="No documents"
+              body="Add attorney-approved documents to this filing packet."
             />
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {packet.items
-                .sort((a, b) => a.sortOrder - b.sortOrder)
-                .map((item) => (
+              {[...packet.items]
+                .sort((a: { sortOrder: number }, b: { sortOrder: number }) => a.sortOrder - b.sortOrder)
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                .map((item: any) => (
                   <Card key={item.id}>
                     <div
                       style={{
@@ -260,14 +293,11 @@ export default function FilingPacketDetailPage() {
                             color: '#1e293b',
                           }}
                         >
-                          {item.documentTitle}
+                          {item.document?.title ?? 'Untitled Document'}
                         </span>
                         {item.isLeadDocument && (
                           <Badge>
-                            <Star
-                              size={10}
-                              style={{ marginRight: '3px' }}
-                            />
+                            <Star size={10} style={{ marginRight: '3px' }} />
                             Lead Document
                           </Badge>
                         )}
@@ -286,7 +316,7 @@ export default function FilingPacketDetailPage() {
                             {item.filingCode}
                           </span>
                         )}
-                        <StatusPill status={item.documentStatus} />
+                        <StatusPill status={item.document?.lifecycleStatus ?? 'UNKNOWN'} />
                       </div>
                     </div>
                   </Card>
@@ -312,11 +342,14 @@ export default function FilingPacketDetailPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               <InfoRow label="Filing Type" value={packet.filingType} />
               <InfoRow label="Court" value={packet.courtName} />
-              <InfoRow label="Cause Number" value={packet.causeNumber} mono />
-              <InfoRow label="Matter" value={packet.matterTitle} />
+              <InfoRow label="Cause Number" value={packet.causeNumber ?? '--'} mono />
               <InfoRow
                 label="Prepared By"
-                value={`${packet.preparedBy.firstName} ${packet.preparedBy.lastName}`}
+                value={
+                  packet.preparedBy
+                    ? `${packet.preparedBy.firstName} ${packet.preparedBy.lastName}`
+                    : '--'
+                }
               />
               <InfoRow
                 label="Created"
@@ -416,9 +449,11 @@ export default function FilingPacketDetailPage() {
       </div>
 
       {/* Validation section */}
-      <div style={{ marginBottom: '20px' }}>
-        <ValidationSection validation={validation} />
-      </div>
+      {validation && (
+        <div style={{ marginBottom: '20px' }}>
+          <ValidationSection validation={validation} />
+        </div>
+      )}
 
       {/* Action buttons */}
       <div
@@ -433,7 +468,7 @@ export default function FilingPacketDetailPage() {
           <Button
             variant="primary"
             onClick={() => {
-              // TODO: call filing.submitForAttorneyReview
+              submitForReview.mutate({ id: packetId });
             }}
           >
             <ArrowRight size={16} style={{ marginRight: '6px' }} />
@@ -445,7 +480,7 @@ export default function FilingPacketDetailPage() {
           <Button
             variant="primary"
             onClick={() => {
-              // TODO: call filing.attorneyApprove
+              attorneyApprove.mutate({ id: packetId });
             }}
           >
             <CheckCircle size={16} style={{ marginRight: '6px' }} />
@@ -457,7 +492,10 @@ export default function FilingPacketDetailPage() {
           <Button
             variant="destructive"
             onClick={() => {
-              // TODO: call filing.attorneyReject with reason prompt
+              const reason = window.prompt('Reason for rejection:');
+              if (reason) {
+                attorneyReject.mutate({ id: packetId, reason });
+              }
             }}
           >
             <XCircle size={16} style={{ marginRight: '6px' }} />
@@ -469,7 +507,7 @@ export default function FilingPacketDetailPage() {
           <Button
             variant="primary"
             onClick={() => {
-              // TODO: call filing.submitToCourt
+              submitToCourt.mutate({ id: packetId });
             }}
           >
             <Send size={16} style={{ marginRight: '6px' }} />

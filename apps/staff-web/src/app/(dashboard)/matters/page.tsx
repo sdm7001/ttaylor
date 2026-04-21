@@ -1,11 +1,13 @@
 'use client';
 
 import React, { useState } from 'react';
-import { PageHeader, Button, DataTable, StatusPill, EmptyState } from '@ttaylor/ui';
+import { useRouter } from 'next/navigation';
+import { PageHeader, Button, DataTable, StatusPill } from '@ttaylor/ui';
 import type { DataTableColumn } from '@ttaylor/ui';
 import { MatterStatus } from '@ttaylor/domain';
 import type { Matter } from '@ttaylor/domain';
 import { Plus } from 'lucide-react';
+import { trpc } from '@/lib/trpc';
 
 type StatusFilter = 'ALL' | 'OPEN' | 'ACTIVE' | 'CLOSED';
 
@@ -16,11 +18,25 @@ const statusFilters: { label: string; value: StatusFilter }[] = [
   { label: 'Closed', value: 'CLOSED' },
 ];
 
-const columns: DataTableColumn<Matter>[] = [
+function statusFilterToQuery(filter: StatusFilter): string | undefined {
+  if (filter === 'ALL') return undefined;
+  if (filter === 'OPEN') return MatterStatus.OPEN;
+  if (filter === 'ACTIVE') return MatterStatus.ACTIVE;
+  if (filter === 'CLOSED') return MatterStatus.CLOSED;
+  return undefined;
+}
+
+// The API returns Prisma-shaped rows with matterType relation.
+// We use `any` for the row type since the actual Prisma return type
+// differs slightly from the domain Matter interface (e.g. matterType is an object).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type MatterRow = any;
+
+const columns: DataTableColumn<MatterRow>[] = [
   {
     key: 'causeNumber',
     header: 'Cause Number',
-    render: (row) => (
+    render: (row: MatterRow) => (
       <span
         style={{
           fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
@@ -35,25 +51,29 @@ const columns: DataTableColumn<Matter>[] = [
   {
     key: 'title',
     header: 'Client Name',
-    render: (row) => (
+    render: (row: MatterRow) => (
       <span style={{ fontWeight: 500, color: '#0f172a' }}>{row.title}</span>
     ),
   },
   {
     key: 'matterType',
     header: 'Matter Type',
+    render: (row: MatterRow) => row.matterType?.name ?? row.matterTypeId?.slice(0, 8) ?? '--',
   },
   {
     key: 'status',
     header: 'Status',
-    render: (row) => <StatusPill status={row.status} />,
+    render: (row: MatterRow) => <StatusPill status={row.status} />,
     width: '140px',
   },
   {
     key: 'attorney',
     header: 'Attorney',
-    render: (row) => {
-      const attorney = row.assignments?.find((a) => a.role === 'LEAD_ATTORNEY');
+    render: (row: MatterRow) => {
+      const attorney = row.assignments?.find(
+        (a: { assignmentRole: string; user?: { firstName: string; lastName: string } }) =>
+          a.assignmentRole === 'ATTORNEY',
+      );
       return attorney?.user
         ? `${attorney.user.firstName} ${attorney.user.lastName}`
         : '--';
@@ -62,8 +82,11 @@ const columns: DataTableColumn<Matter>[] = [
   {
     key: 'paralegal',
     header: 'Paralegal',
-    render: (row) => {
-      const paralegal = row.assignments?.find((a) => a.role === 'PARALEGAL');
+    render: (row: MatterRow) => {
+      const paralegal = row.assignments?.find(
+        (a: { assignmentRole: string; user?: { firstName: string; lastName: string } }) =>
+          a.assignmentRole === 'PARALEGAL',
+      );
       return paralegal?.user
         ? `${paralegal.user.firstName} ${paralegal.user.lastName}`
         : '--';
@@ -72,7 +95,7 @@ const columns: DataTableColumn<Matter>[] = [
   {
     key: 'updatedAt',
     header: 'Last Activity',
-    render: (row) =>
+    render: (row: MatterRow) =>
       row.updatedAt
         ? new Date(row.updatedAt).toLocaleDateString('en-US', {
             month: 'short',
@@ -85,26 +108,22 @@ const columns: DataTableColumn<Matter>[] = [
 ];
 
 export default function MattersPage() {
+  const router = useRouter();
   const [activeFilter, setActiveFilter] = useState<StatusFilter>('ALL');
 
-  // TODO: fetch matters from tRPC API
-  const matters: Matter[] = [];
-  const loading = false;
-
-  const filtered = matters.filter((m) => {
-    if (activeFilter === 'ALL') return true;
-    if (activeFilter === 'OPEN') return m.status === MatterStatus.OPEN;
-    if (activeFilter === 'ACTIVE') return m.status === MatterStatus.ACTIVE;
-    if (activeFilter === 'CLOSED') return m.status === MatterStatus.CLOSED;
-    return true;
+  const { data, isLoading } = trpc.matters.list.useQuery({
+    status: statusFilterToQuery(activeFilter),
+    limit: 50,
   });
+
+  const matters = data?.items ?? [];
 
   return (
     <>
       <PageHeader
         title="Matters"
         actions={
-          <Button variant="primary" onClick={() => {/* TODO: open new matter dialog */}}>
+          <Button variant="primary" onClick={() => router.push('/matters/new')}>
             <Plus size={16} style={{ marginRight: '6px' }} />
             New Matter
           </Button>
@@ -146,16 +165,15 @@ export default function MattersPage() {
         ))}
       </div>
 
-      <DataTable<Matter>
+      <DataTable<MatterRow>
         columns={columns}
-        data={filtered}
-        loading={loading}
+        data={matters}
+        loading={isLoading}
         emptyMessage="No matters found"
-        onRowClick={(matter) => {
-          // TODO: navigate to /matters/[id]
-          console.log('Navigate to matter:', matter.id);
+        onRowClick={(matter: MatterRow) => {
+          router.push(`/matters/${matter.id}`);
         }}
-        rowKey={(row) => row.id}
+        rowKey={(row: MatterRow) => row.id}
       />
     </>
   );

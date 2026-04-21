@@ -12,7 +12,8 @@
     "superjson": "^2.2.0",
     "@clerk/backend": "^1.0.0",
     "@ttaylor/domain": "workspace:*",
-    "@ttaylor/auth": "workspace:*"
+    "@ttaylor/auth": "workspace:*",
+    "@ttaylor/workflows": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.4.0",

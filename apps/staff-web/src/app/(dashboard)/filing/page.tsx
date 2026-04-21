@@ -1,232 +1,61 @@
 'use client';
 
-import React, { useState } from 'react';
-import Link from 'next/link';
-import { PageHeader, Button, StatusPill, EmptyState, Card } from '@ttaylor/ui';
-import { FilingPacketStatus } from '@ttaylor/domain';
-import { Send, Plus, Eye, CheckCircle, XCircle, ArrowRight } from 'lucide-react';
+import React from 'react';
+import { useRouter } from 'next/navigation';
+import { PageHeader, StatusPill, EmptyState, LoadingSpinner } from '@ttaylor/ui';
+import { Send, Briefcase } from 'lucide-react';
+import { trpc } from '@/lib/trpc';
 
 /**
  * Filing queue page.
  *
- * Displays all filing packets across matters with status filter tabs,
- * a data table, and quick-action buttons per row based on packet status.
+ * Since filing.listPackets requires a matterId (no aggregate endpoint yet),
+ * this page shows the user's matters and lets them navigate to the matter
+ * detail page to manage filing packets.
+ *
+ * TODO: Add a filing.listQueue aggregate endpoint so we can show all packets
+ * across matters in a single view without N+1 queries.
  */
 
-type StatusFilter = 'ALL' | 'ASSEMBLING' | 'READY_FOR_ATTORNEY_REVIEW' | 'ATTORNEY_APPROVED' | 'SUBMITTED_TO_COURT' | 'ATTORNEY_REJECTED';
-
-const statusFilters: { label: string; value: StatusFilter }[] = [
-  { label: 'All', value: 'ALL' },
-  { label: 'Assembling', value: 'ASSEMBLING' },
-  { label: 'Pending Attorney Review', value: 'READY_FOR_ATTORNEY_REVIEW' },
-  { label: 'Attorney Approved', value: 'ATTORNEY_APPROVED' },
-  { label: 'Submitted', value: 'SUBMITTED_TO_COURT' },
-  { label: 'Rejected', value: 'ATTORNEY_REJECTED' },
-];
-
-// TODO: Replace with actual tRPC API data
-interface FilingPacketRow {
-  id: string;
-  matterTitle: string;
-  title: string;
-  filingType: string;
-  status: string;
-  courtName: string;
-  causeNumber: string;
-  updatedAt: string;
-}
-
-const packets: FilingPacketRow[] = [];
-
-function QuickActions({ packet }: { packet: FilingPacketRow }) {
-  return (
-    <div style={{ display: 'flex', gap: '6px' }}>
-      <Link href={`/filing/${packet.id}`} style={{ textDecoration: 'none' }}>
-        <button
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '4px',
-            padding: '4px 10px',
-            fontSize: '12px',
-            fontWeight: 500,
-            color: '#475569',
-            backgroundColor: '#f1f5f9',
-            border: '1px solid #e2e8f0',
-            borderRadius: '6px',
-            cursor: 'pointer',
-          }}
-        >
-          <Eye size={12} />
-          View
-        </button>
-      </Link>
-
-      {packet.status === 'ASSEMBLING' && (
-        <button
-          onClick={() => {
-            // TODO: call filing.submitForAttorneyReview
-          }}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '4px',
-            padding: '4px 10px',
-            fontSize: '12px',
-            fontWeight: 500,
-            color: '#1565C0',
-            backgroundColor: '#E3F2FD',
-            border: '1px solid #BBDEFB',
-            borderRadius: '6px',
-            cursor: 'pointer',
-          }}
-        >
-          <ArrowRight size={12} />
-          Submit for Review
-        </button>
-      )}
-
-      {packet.status === 'READY_FOR_ATTORNEY_REVIEW' && (
-        <>
-          <button
-            onClick={() => {
-              // TODO: call filing.attorneyApprove
-            }}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '4px 10px',
-              fontSize: '12px',
-              fontWeight: 500,
-              color: '#2E7D32',
-              backgroundColor: '#E8F5E9',
-              border: '1px solid #C8E6C9',
-              borderRadius: '6px',
-              cursor: 'pointer',
-            }}
-          >
-            <CheckCircle size={12} />
-            Approve
-          </button>
-          <button
-            onClick={() => {
-              // TODO: call filing.attorneyReject
-            }}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '4px 10px',
-              fontSize: '12px',
-              fontWeight: 500,
-              color: '#C62828',
-              backgroundColor: '#FFEBEE',
-              border: '1px solid #FFCDD2',
-              borderRadius: '6px',
-              cursor: 'pointer',
-            }}
-          >
-            <XCircle size={12} />
-            Reject
-          </button>
-        </>
-      )}
-
-      {packet.status === 'ATTORNEY_APPROVED' && (
-        <button
-          onClick={() => {
-            // TODO: call filing.submitToCourt
-          }}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '4px',
-            padding: '4px 10px',
-            fontSize: '12px',
-            fontWeight: 500,
-            color: '#ffffff',
-            backgroundColor: '#1565C0',
-            border: '1px solid #0D47A1',
-            borderRadius: '6px',
-            cursor: 'pointer',
-          }}
-        >
-          <Send size={12} />
-          Submit to Court
-        </button>
-      )}
-    </div>
-  );
-}
-
 export default function FilingQueuePage() {
-  const [activeFilter, setActiveFilter] = useState<StatusFilter>('ALL');
+  const router = useRouter();
+  const { data: mattersData, isLoading } = trpc.matters.list.useQuery({ limit: 50 });
+  const matters = mattersData?.items ?? [];
 
-  const filtered = packets.filter((p) => {
-    if (activeFilter === 'ALL') return true;
-    return p.status === activeFilter;
-  });
+  if (isLoading) {
+    return (
+      <>
+        <PageHeader title="Filing Queue" />
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            minHeight: '300px',
+          }}
+        >
+          <LoadingSpinner size="lg" />
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
       <PageHeader
         title="Filing Queue"
-        actions={
-          <Button variant="primary" onClick={() => {/* TODO: open create filing packet dialog */}}>
-            <Plus size={16} style={{ marginRight: '6px' }} />
-            New Filing Packet
-          </Button>
-        }
+        subtitle="Select a matter to manage its filing packets"
       />
 
-      {/* Status filter tabs */}
-      <div
-        style={{
-          display: 'flex',
-          gap: '4px',
-          marginBottom: '16px',
-          borderBottom: '1px solid #e2e8f0',
-          paddingBottom: '0',
-          overflowX: 'auto',
-        }}
-      >
-        {statusFilters.map((f) => (
-          <button
-            key={f.value}
-            onClick={() => setActiveFilter(f.value)}
-            style={{
-              padding: '8px 16px',
-              fontSize: '13px',
-              fontWeight: activeFilter === f.value ? 600 : 500,
-              color: activeFilter === f.value ? '#1565C0' : '#64748b',
-              backgroundColor: 'transparent',
-              border: 'none',
-              borderBottom:
-                activeFilter === f.value
-                  ? '3px solid #1565C0'
-                  : '3px solid transparent',
-              cursor: 'pointer',
-              transition: 'color 100ms ease, border-color 100ms ease',
-              marginBottom: '-1px',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
+      {/* TODO: Status filter tabs will be useful once filing.listQueue endpoint exists */}
 
-      {/* Filing packets table */}
-      {filtered.length === 0 ? (
+      {matters.length === 0 ? (
         <EmptyState
           icon={<Send size={40} />}
-          title="No filing packets"
-          description={
-            activeFilter === 'ALL'
-              ? 'Create a filing packet to start assembling documents for court submission.'
-              : `No packets in ${activeFilter.replace(/_/g, ' ').toLowerCase()} status.`
-          }
+          heading="No matters found"
+          body="Create a matter first, then you can manage its filing packets."
+          actionLabel="Go to Matters"
+          onAction={() => router.push('/matters')}
         />
       ) : (
         <div
@@ -241,7 +70,7 @@ export default function FilingQueuePage() {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: '1fr 1.2fr 0.8fr 140px 1fr 120px 1fr',
+              gridTemplateColumns: '1.5fr 1fr 1fr 140px',
               gap: '0',
               padding: '10px 16px',
               backgroundColor: '#f8fafc',
@@ -254,43 +83,60 @@ export default function FilingQueuePage() {
             }}
           >
             <span>Matter</span>
-            <span>Packet Title</span>
-            <span>Filing Type</span>
+            <span>Cause Number</span>
+            <span>Type</span>
             <span>Status</span>
-            <span>Court</span>
-            <span>Last Updated</span>
-            <span>Actions</span>
           </div>
 
           {/* Table rows */}
-          {filtered.map((packet) => (
+          {matters.map((matter: {
+            id: string;
+            title: string;
+            causeNumber?: string | null;
+            status: string;
+            matterType?: { name: string } | null;
+          }) => (
             <div
-              key={packet.id}
+              key={matter.id}
+              onClick={() => router.push(`/matters/${matter.id}`)}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '1fr 1.2fr 0.8fr 140px 1fr 120px 1fr',
+                gridTemplateColumns: '1.5fr 1fr 1fr 140px',
                 gap: '0',
                 padding: '12px 16px',
                 borderBottom: '1px solid #f1f5f9',
                 fontSize: '13px',
                 color: '#1e293b',
                 alignItems: 'center',
+                cursor: 'pointer',
+                transition: 'background-color 100ms ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = '#f8fafc';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = 'transparent';
               }}
             >
-              <span style={{ fontWeight: 500 }}>{packet.matterTitle}</span>
-              <span>{packet.title}</span>
-              <span style={{ color: '#64748b' }}>{packet.filingType}</span>
+              <span style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Briefcase size={14} style={{ color: '#64748b' }} />
+                {matter.title}
+              </span>
+              <span
+                style={{
+                  fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                  fontSize: '12px',
+                  color: '#64748b',
+                }}
+              >
+                {matter.causeNumber ?? '--'}
+              </span>
+              <span style={{ color: '#64748b', fontSize: '12px' }}>
+                {matter.matterType?.name ?? '--'}
+              </span>
               <span>
-                <StatusPill status={packet.status} />
+                <StatusPill status={matter.status} />
               </span>
-              <span style={{ color: '#64748b', fontSize: '12px' }}>{packet.courtName}</span>
-              <span style={{ color: '#94a3b8', fontSize: '12px' }}>
-                {new Date(packet.updatedAt).toLocaleDateString('en-US', {
-                  month: 'short',
-                  day: 'numeric',
-                })}
-              </span>
-              <QuickActions packet={packet} />
             </div>
           ))}
         </div>

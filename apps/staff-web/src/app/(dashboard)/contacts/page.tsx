@@ -1,9 +1,11 @@
 'use client';
 
 import React, { useState } from 'react';
-import { PageHeader, Button, DataTable, EmptyState } from '@ttaylor/ui';
+import { useRouter } from 'next/navigation';
+import { PageHeader, Button, DataTable } from '@ttaylor/ui';
 import type { DataTableColumn } from '@ttaylor/ui';
 import { Plus, Search } from 'lucide-react';
+import { trpc } from '@/lib/trpc';
 
 // ---------------------------------------------------------------------------
 // Types (matches the tRPC contacts.list response shape)
@@ -84,18 +86,22 @@ const columns: DataTableColumn<ContactRow>[] = [
 // ---------------------------------------------------------------------------
 
 export default function ContactsPage() {
+  const router = useRouter();
   const [searchTerm, setSearchTerm] = useState('');
 
-  // TODO: Replace with tRPC query: trpc.contacts.list.useQuery({ search: searchTerm })
-  const contacts: ContactRow[] = [];
-  const loading = false;
+  const { data, isLoading } = trpc.contacts.list.useQuery({
+    search: searchTerm || undefined,
+    limit: 50,
+  });
+
+  const contacts: ContactRow[] = (data?.items as ContactRow[]) ?? [];
 
   return (
     <>
       <PageHeader
         title="Contacts"
         actions={
-          <Button variant="primary" onClick={() => { /* TODO: open new contact dialog */ }}>
+          <Button variant="primary" onClick={() => router.push('/contacts/new')}>
             <Plus size={16} style={{ marginRight: '6px' }} />
             New Contact
           </Button>
@@ -145,11 +151,10 @@ export default function ContactsPage() {
       <DataTable<ContactRow>
         columns={columns}
         data={contacts}
-        loading={loading}
+        loading={isLoading}
         emptyMessage="No contacts found"
         onRowClick={(contact) => {
-          // TODO: navigate to /contacts/[id]
-          console.log('Navigate to contact:', contact.id);
+          router.push(`/contacts/${contact.id}`);
         }}
         rowKey={(row) => row.id}
       />

@@ -1,28 +1,17 @@
 'use client';
 
 import React from 'react';
-import Link from 'next/link';
-import { Card, EmptyState } from '@ttaylor/ui';
-import { MessageSquare } from 'lucide-react';
+import { Card } from '@ttaylor/ui';
+import { MessageSquare, Phone } from 'lucide-react';
 
 /**
  * Messages page for the client portal.
  *
- * Lists message threads with attorney/paralegal staff,
- * sorted by most recent activity. Shows unread count per thread.
+ * Portal messaging requires a dedicated backend endpoint that does not exist yet.
+ * Rather than showing a misleading empty DataTable, we display an honest
+ * informational message explaining the feature status and directing clients
+ * to contact their attorney directly.
  */
-
-// TODO: Replace with tRPC API call to fetch message threads for the authenticated client
-interface MessageThread {
-  id: string;
-  withName: string;
-  withRole: string;
-  lastMessage: string;
-  lastMessageAt: string;
-  unreadCount: number;
-}
-
-const threads: MessageThread[] = [];
 
 export default function MessagesPage() {
   return (
@@ -39,102 +28,75 @@ export default function MessagesPage() {
         Messages
       </h1>
 
-      {threads.length === 0 ? (
-        <EmptyState
-          icon={<MessageSquare size={40} />}
-          title="No messages"
-          description="When your legal team sends you a message, it will appear here. You can also start a conversation from your matter page."
-        />
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {threads.map((thread) => (
-            <Link
-              key={thread.id}
-              href={`/messages/${thread.id}`}
-              style={{ textDecoration: 'none', color: 'inherit' }}
-            >
-              <Card>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span
-                        style={{
-                          fontSize: '14px',
-                          fontWeight: 600,
-                          color: '#0f172a',
-                        }}
-                      >
-                        {thread.withName}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: '11px',
-                          color: '#94a3b8',
-                          fontWeight: 500,
-                        }}
-                      >
-                        {thread.withRole}
-                      </span>
-                    </div>
-                    <p
-                      style={{
-                        margin: 0,
-                        fontSize: '13px',
-                        color: '#64748b',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {thread.lastMessage}
-                    </p>
-                  </div>
+      <Card>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            padding: '40px 20px',
+            textAlign: 'center',
+            gap: '16px',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '56px',
+              height: '56px',
+              borderRadius: '50%',
+              backgroundColor: '#EDE7F6',
+            }}
+          >
+            <MessageSquare size={28} style={{ color: '#7c3aed' }} />
+          </div>
 
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'flex-end',
-                      gap: '4px',
-                      flexShrink: 0,
-                      marginLeft: '16px',
-                    }}
-                  >
-                    <span style={{ fontSize: '12px', color: '#94a3b8' }}>
-                      {thread.lastMessageAt}
-                    </span>
-                    {thread.unreadCount > 0 && (
-                      <span
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          minWidth: '20px',
-                          height: '20px',
-                          padding: '0 6px',
-                          fontSize: '11px',
-                          fontWeight: 700,
-                          color: '#ffffff',
-                          backgroundColor: '#1565C0',
-                          borderRadius: '10px',
-                        }}
-                      >
-                        {thread.unreadCount}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </Card>
-            </Link>
-          ))}
+          <div>
+            <h2
+              style={{
+                fontSize: '18px',
+                fontWeight: 600,
+                color: '#0f172a',
+                margin: '0 0 8px 0',
+              }}
+            >
+              Secure Messaging Coming Soon
+            </h2>
+            <p
+              style={{
+                fontSize: '14px',
+                color: '#64748b',
+                margin: '0 0 20px 0',
+                maxWidth: '420px',
+                lineHeight: '1.6',
+              }}
+            >
+              We are working on a secure messaging feature so you can communicate
+              directly with your legal team through this portal. In the meantime,
+              please reach out using the contact information below.
+            </p>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '12px 20px',
+              backgroundColor: '#f8fafc',
+              borderRadius: '8px',
+              border: '1px solid #e2e8f0',
+            }}
+          >
+            <Phone size={16} style={{ color: '#64748b' }} />
+            <span style={{ fontSize: '14px', color: '#334155' }}>
+              For urgent matters, please contact your attorney directly by phone.
+            </span>
+          </div>
         </div>
-      )}
+      </Card>
     </>
   );
 }

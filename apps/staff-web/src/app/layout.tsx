@@ -2,6 +2,7 @@ import React from 'react';
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { ClerkProvider } from '@clerk/nextjs';
+import { TrpcProvider } from '../lib/trpc-provider';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -37,7 +38,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             MozOsxFontSmoothing: 'grayscale',
           }}
         >
-          {children}
+          <TrpcProvider>
+            {children}
+          </TrpcProvider>
         </body>
       </html>
     </ClerkProvider>

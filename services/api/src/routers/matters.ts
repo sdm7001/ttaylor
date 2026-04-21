@@ -5,45 +5,17 @@
  */
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
-import { type MatterStatus } from '@prisma/client';
+import { MatterStatus } from '@ttaylor/domain';
+import { validateMatterTransition, ATTORNEY_REQUIRED_TRANSITIONS } from '@ttaylor/workflows';
 import { router, protectedProcedure, requirePermission, requireRole } from '../trpc';
 import { emitAuditEvent } from './audit';
 import { PERMISSIONS } from '@ttaylor/auth';
 
 // ---------------------------------------------------------------------------
-// Status transition state machine
-// ---------------------------------------------------------------------------
-
-const VALID_TRANSITIONS: Record<string, MatterStatus[]> = {
-  LEAD_PENDING: ['CONFLICT_REVIEW'],
-  CONFLICT_REVIEW: ['CONSULTATION_COMPLETED', 'LEAD_PENDING'],
-  CONSULTATION_COMPLETED: ['RETAINED', 'LEAD_PENDING'],
-  RETAINED: ['OPEN_ACTIVE'],
-  OPEN_ACTIVE: ['AWAITING_FILING', 'AWAITING_SERVICE', 'IN_DISCOVERY', 'IN_MEDIATION', 'AWAITING_HEARING', 'CLOSED'],
-  AWAITING_FILING: ['AWAITING_SERVICE', 'OPEN_ACTIVE'],
-  AWAITING_SERVICE: ['IN_DISCOVERY', 'OPEN_ACTIVE'],
-  IN_DISCOVERY: ['IN_MEDIATION', 'AWAITING_HEARING', 'OPEN_ACTIVE'],
-  IN_MEDIATION: ['AWAITING_HEARING', 'AWAITING_FINAL_ORDER', 'OPEN_ACTIVE'],
-  AWAITING_HEARING: ['AWAITING_FINAL_ORDER', 'OPEN_ACTIVE'],
-  AWAITING_FINAL_ORDER: ['POST_ORDER_MONITORING', 'CLOSED'],
-  POST_ORDER_MONITORING: ['CLOSED'],
-  CLOSED: ['ARCHIVED'],
-  ARCHIVED: [],
-};
-
-/** Transitions that require the caller to hold ATTORNEY role. */
-const ATTORNEY_REQUIRED_STATUSES: MatterStatus[] = ['CLOSED', 'ARCHIVED'];
-
-// ---------------------------------------------------------------------------
 // Zod schemas
 // ---------------------------------------------------------------------------
 
-const matterStatusValues = [
-  'LEAD_PENDING', 'CONFLICT_REVIEW', 'CONSULTATION_COMPLETED', 'RETAINED',
-  'OPEN_ACTIVE', 'AWAITING_FILING', 'AWAITING_SERVICE', 'IN_DISCOVERY',
-  'IN_MEDIATION', 'AWAITING_HEARING', 'AWAITING_FINAL_ORDER',
-  'POST_ORDER_MONITORING', 'CLOSED', 'ARCHIVED',
-] as const;
+const matterStatusValues = Object.values(MatterStatus) as [string, ...string[]];
 
 // ---------------------------------------------------------------------------
 // Router
@@ -314,7 +286,7 @@ export const mattersRouter = router({
 
   /**
    * Transition a matter to a new status.
-   * Validates the transition against the state machine.
+   * Validates the transition against the canonical state machine from @ttaylor/workflows.
    * Attorney-required transitions enforce caller role.
    */
   updateStatus: protectedProcedure
@@ -338,21 +310,24 @@ export const mattersRouter = router({
         });
       }
 
-      // Validate transition is allowed
-      const allowed = VALID_TRANSITIONS[matter.status] ?? [];
-      if (!allowed.includes(input.status as MatterStatus)) {
+      // Validate transition against canonical state machine
+      const validation = validateMatterTransition(
+        matter.status as MatterStatus,
+        input.status as MatterStatus,
+      );
+      if (!validation.valid) {
         throw new TRPCError({
           code: 'BAD_REQUEST',
-          message: `Cannot transition from '${matter.status}' to '${input.status}'`,
+          message: validation.reason ?? 'Invalid status transition',
         });
       }
 
       // Attorney gate for CLOSED and ARCHIVED
-      if (ATTORNEY_REQUIRED_STATUSES.includes(input.status as MatterStatus)) {
+      if (ATTORNEY_REQUIRED_TRANSITIONS.has(input.status as MatterStatus)) {
         const isAttorney = ctx.roles.includes('ATTORNEY');
         if (!isAttorney) {
           throw new TRPCError({
-            code: 'PRECONDITION_FAILED',
+            code: 'FORBIDDEN',
             message: `Transitioning to '${input.status}' requires ATTORNEY role`,
           });
         }
@@ -365,14 +340,13 @@ export const mattersRouter = router({
       const updated = await ctx.prisma.matter.update({
         where: { id: input.id },
         data: {
-          status: input.status as MatterStatus,
+          status: input.status,
           ...(input.status === 'CLOSED' ? { closedAt: now } : {}),
           ...(input.status === 'ARCHIVED' ? { archivedAt: now } : {}),
         },
       });
 
-      // Record the stage transition (we use the existing Task model or a
-      // direct record; for Phase 4 we embed in audit metadata)
+      // Record the stage transition in audit log
       await emitAuditEvent(ctx.prisma, {
         eventType: 'STAGE_CHANGED',
         actorId: ctx.userId,
