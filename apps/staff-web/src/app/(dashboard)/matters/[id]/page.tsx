@@ -21,8 +21,10 @@ import {
   StickyNote,
   Send,
   Briefcase,
+  Plus,
 } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
+import { GenerateDocumentDialog } from '@/components/documents/GenerateDocumentDialog';
 
 // ---------------------------------------------------------------------------
 // Tab types
@@ -182,6 +184,7 @@ function PartiesTab({ parties }: { parties: any[] }) {
 
 function DocumentsTab({ matterId }: { matterId: string }) {
   const utils = trpc.useUtils();
+  const [generateOpen, setGenerateOpen] = useState(false);
   const { data: docData, isLoading } = trpc.documents.list.useQuery({ matterId });
   const documents = docData?.items ?? [];
 
@@ -207,23 +210,48 @@ function DocumentsTab({ matterId }: { matterId: string }) {
     return <LoadingSpinner size="md" />;
   }
 
-  if (documents.length === 0) {
-    return (
-      <EmptyState
-        heading="No documents yet"
-        body="Generate or upload documents for this matter."
-        actionLabel="New Document"
-        onAction={() => {
-          /* TODO: open new document dialog */
+  return (
+    <>
+      {/* Header with generate button */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '12px',
+        }}
+      >
+        <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: '#0f172a' }}>
+          Documents ({documents.length})
+        </h3>
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={() => setGenerateOpen(true)}
+        >
+          <Plus size={14} style={{ marginRight: '4px' }} />
+          Generate Document
+        </Button>
+      </div>
+
+      <GenerateDocumentDialog
+        matterId={matterId}
+        isOpen={generateOpen}
+        onClose={() => setGenerateOpen(false)}
+        onSuccess={() => {
+          utils.documents.list.invalidate({ matterId });
         }}
       />
-    );
-  }
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-      {documents.map((doc: any) => (
+      {documents.length === 0 ? (
+        <EmptyState
+          heading="No documents yet"
+          body="Generate or upload documents for this matter using the button above."
+        />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          {documents.map((doc: any) => (
         <Card key={doc.id}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div>
@@ -291,7 +319,9 @@ function DocumentsTab({ matterId }: { matterId: string }) {
           </div>
         </Card>
       ))}
-    </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -611,16 +641,216 @@ function CalendarTab({ matterId }: { matterId: string }) {
   );
 }
 
-function FilingTab() {
+function FilingTab({ matterId, matter }: { matterId: string; matter: { court?: string | null; causeNumber?: string | null } }) {
+  const filingRouter = useRouter();
+  const utils = trpc.useUtils();
+  const [showForm, setShowForm] = useState(false);
+  const [packetTitle, setPacketTitle] = useState('');
+  const [filingType, setFilingType] = useState('ORIGINAL_PETITION');
+  const [courtName, setCourtName] = useState(matter?.court ?? '');
+  const [causeNumber, setCauseNumber] = useState(matter?.causeNumber ?? '');
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const { data: packets, isLoading: packetsLoading } = trpc.filing.listPackets.useQuery({ matterId });
+
+  const createPacket = trpc.filing.createPacket.useMutation({
+    onSuccess: () => {
+      setShowForm(false);
+      setPacketTitle('');
+      setFilingType('ORIGINAL_PETITION');
+      setFormError(null);
+      utils.filing.listPackets.invalidate({ matterId });
+    },
+    onError: (err) => {
+      setFormError(err.message || 'Failed to create filing packet');
+    },
+  });
+
+  const FILING_TYPES = [
+    { value: 'ORIGINAL_PETITION', label: 'Original Petition' },
+    { value: 'ANSWER', label: 'Answer' },
+    { value: 'MOTION', label: 'Motion' },
+    { value: 'AGREED_ORDER', label: 'Agreed Order' },
+    { value: 'FINAL_DECREE', label: 'Final Decree' },
+    { value: 'TEMPORARY_ORDERS', label: 'Temporary Orders' },
+    { value: 'OTHER', label: 'Other' },
+  ];
+
+  function handleCreatePacket() {
+    setFormError(null);
+    if (!packetTitle.trim()) {
+      setFormError('Title is required');
+      return;
+    }
+    if (!courtName.trim()) {
+      setFormError('Court name is required');
+      return;
+    }
+    if (!causeNumber.trim()) {
+      setFormError('Cause number is required');
+      return;
+    }
+    createPacket.mutate({
+      matterId,
+      title: packetTitle.trim(),
+      filingType,
+      courtName: courtName.trim(),
+      causeNumber: causeNumber.trim(),
+    });
+  }
+
+  if (packetsLoading) {
+    return <LoadingSpinner size="md" />;
+  }
+
+  const fieldStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '8px 12px',
+    fontSize: '14px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '6px',
+    outline: 'none',
+    color: '#0f172a',
+    backgroundColor: '#ffffff',
+    boxSizing: 'border-box' as const,
+  };
+
+  const selectFieldStyle: React.CSSProperties = {
+    ...fieldStyle,
+    appearance: 'none' as const,
+    backgroundImage:
+      'url("data:image/svg+xml,%3Csvg width=\'12\' height=\'8\' viewBox=\'0 0 12 8\' fill=\'none\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cpath d=\'M1 1.5L6 6.5L11 1.5\' stroke=\'%2364748b\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'/%3E%3C/svg%3E")',
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: 'right 12px center',
+    paddingRight: '36px',
+  };
+
   return (
-    <EmptyState
-      heading="Filing managed from queue"
-      body="Filing packets are managed from the Filing Queue page."
-      actionLabel="Go to Filing Queue"
-      onAction={() => {
-        window.location.href = '/filing';
-      }}
-    />
+    <div>
+      {/* Create button */}
+      <div style={{ marginBottom: '16px' }}>
+        <Button variant="primary" size="sm" onClick={() => setShowForm(!showForm)}>
+          {showForm ? 'Cancel' : 'Create Filing Packet'}
+        </Button>
+      </div>
+
+      {/* Inline create form */}
+      {showForm && (
+        <Card title="New Filing Packet">
+          <div style={{ maxWidth: '480px' }}>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>
+                Title <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <input
+                style={fieldStyle}
+                value={packetTitle}
+                onChange={(e) => setPacketTitle(e.target.value)}
+                placeholder="e.g., Original Petition - Smith v. Smith"
+              />
+            </div>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>
+                Filing Type <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <select
+                style={selectFieldStyle}
+                value={filingType}
+                onChange={(e) => setFilingType(e.target.value)}
+              >
+                {FILING_TYPES.map((ft) => (
+                  <option key={ft.value} value={ft.value}>{ft.label}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>
+                Court Name <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <input
+                style={fieldStyle}
+                value={courtName}
+                onChange={(e) => setCourtName(e.target.value)}
+                placeholder="Court name"
+              />
+            </div>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>
+                Cause Number <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <input
+                style={fieldStyle}
+                value={causeNumber}
+                onChange={(e) => setCauseNumber(e.target.value)}
+                placeholder="Cause number"
+              />
+            </div>
+
+            {formError && (
+              <div style={{ marginBottom: '12px', fontSize: '13px', color: '#dc2626' }}>
+                {formError}
+              </div>
+            )}
+
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleCreatePacket}
+              disabled={createPacket.isPending}
+            >
+              {createPacket.isPending ? 'Creating...' : 'Create Packet'}
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {/* Packet list */}
+      {(!packets || packets.length === 0) && !showForm ? (
+        <EmptyState
+          heading="No filing packets"
+          body="Create a filing packet to assemble documents for court submission."
+          actionLabel="Create Filing Packet"
+          onAction={() => setShowForm(true)}
+        />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {packets?.map((packet) => (
+            <Card key={packet.id}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: '14px', color: '#0f172a' }}>
+                    {packet.title}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>
+                    {packet.filingType} -- Created{' '}
+                    {new Date(packet.createdAt).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}
+                    {packet.preparedBy && (
+                      <span>
+                        {' '}by {packet.preparedBy.firstName} {packet.preparedBy.lastName}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <StatusPill status={packet.status} />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => filingRouter.push(`/filing/${packet.id}`)}
+                  >
+                    View
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -732,7 +962,7 @@ export default function MatterDetailPage() {
       case 'documents':
         return <DocumentsTab matterId={matterId} />;
       case 'filing':
-        return <FilingTab />;
+        return <FilingTab matterId={matterId} matter={matter} />;
       case 'checklist':
         return <ChecklistTab matterId={matterId} />;
       case 'calendar':

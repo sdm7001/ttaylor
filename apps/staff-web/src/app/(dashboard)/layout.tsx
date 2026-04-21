@@ -6,28 +6,34 @@ import { usePathname } from 'next/navigation';
 import { UserButton } from '@clerk/nextjs';
 import {
   LayoutDashboard,
+  ClipboardList,
   Briefcase,
   Users,
   FileText,
   Send,
   CalendarDays,
   Search,
+  Scale,
   DollarSign,
   BarChart3,
   Settings,
+  ShieldCheck,
 } from 'lucide-react';
 
 const navItems = [
   { label: 'Dashboard', href: '/', icon: LayoutDashboard },
+  { label: 'Intake', href: '/intake', icon: ClipboardList },
   { label: 'Matters', href: '/matters', icon: Briefcase },
   { label: 'Contacts', href: '/contacts', icon: Users },
   { label: 'Documents', href: '/documents', icon: FileText },
   { label: 'Filing', href: '/filing', icon: Send },
   { label: 'Calendar', href: '/calendar', icon: CalendarDays },
   { label: 'Discovery', href: '/discovery', icon: Search },
+  { label: 'Orders', href: '/orders', icon: Scale },
   { label: 'Financial', href: '/financial', icon: DollarSign },
   { label: 'Reports', href: '/reports', icon: BarChart3 },
   { label: 'Settings', href: '/settings', icon: Settings },
+  { label: 'Audit Log', href: '/audit', icon: ShieldCheck },
 ] as const;
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {

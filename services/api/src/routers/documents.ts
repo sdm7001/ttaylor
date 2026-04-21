@@ -26,6 +26,20 @@ const documentLifecycleValues = [
 
 export const documentsRouter = router({
   /**
+   * List available document templates, optionally filtered by matter type.
+   */
+  listTemplates: protectedProcedure
+    .input(z.object({ matterTypeId: z.string().optional() }))
+    .query(async ({ ctx, input }) => {
+      return ctx.prisma.template.findMany({
+        where: input.matterTypeId
+          ? { applicableMatterTypes: { has: input.matterTypeId } }
+          : undefined,
+        orderBy: { name: 'asc' },
+      });
+    }),
+
+  /**
    * List documents for a matter with optional status filter.
    */
   list: protectedProcedure

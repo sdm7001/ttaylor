@@ -15,6 +15,8 @@ import { contactsRouter } from './routers/contacts';
 import { discoveryRouter } from './routers/discovery';
 import { financialRouter } from './routers/financial';
 import { ordersRouter } from './routers/orders';
+import { dashboardRouter } from './routers/dashboard';
+import { filingRouter } from './routers/filing';
 
 export const appRouter = router({
   matters: mattersRouter,
@@ -27,6 +29,8 @@ export const appRouter = router({
   discovery: discoveryRouter,
   financial: financialRouter,
   orders: ordersRouter,
+  dashboard: dashboardRouter,
+  filing: filingRouter,
 });
 
 export type AppRouter = typeof appRouter;

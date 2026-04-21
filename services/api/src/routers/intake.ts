@@ -18,11 +18,70 @@ const leadStatusValues = [
   'CONSULTATION_COMPLETED', 'RETAINED', 'DECLINED', 'CLOSED',
 ] as const;
 
+type LeadStatusValue = typeof leadStatusValues[number];
+
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 
 export const intakeRouter = router({
+  /**
+   * Get a single lead by ID, including latest conflict check.
+   */
+  getById: protectedProcedure
+    .use(requirePermission(PERMISSIONS.INTAKE_CREATE_LEAD))
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const lead = await ctx.prisma.lead.findUnique({
+        where: { id: input.id },
+        include: {
+          conflictChecks: { orderBy: { performedAt: 'desc' }, take: 1 },
+        },
+      });
+      if (!lead) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'Lead not found' });
+      }
+
+      // Also fetch the prospective client contact for display
+      let contact = null;
+      if (lead.prospectiveClientContactId) {
+        contact = await ctx.prisma.contact.findUnique({
+          where: { id: lead.prospectiveClientContactId },
+        });
+      }
+
+      return { ...lead, contact };
+    }),
+
+  /**
+   * Update a lead's status with an optional note.
+   */
+  updateLeadStatus: protectedProcedure
+    .use(requirePermission(PERMISSIONS.INTAKE_CREATE_LEAD))
+    .input(
+      z.object({
+        id: z.string(),
+        status: z.enum(leadStatusValues),
+        note: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const lead = await ctx.prisma.lead.update({
+        where: { id: input.id },
+        data: { status: input.status },
+      });
+
+      await emitAuditEvent(ctx.prisma, {
+        eventType: 'STAGE_CHANGED',
+        actorId: ctx.userId,
+        entityType: 'Lead',
+        entityId: input.id,
+        metadata: { newStatus: input.status, note: input.note },
+      });
+
+      return lead;
+    }),
+
   /**
    * Create a new lead. Requires RECEPTIONIST or higher.
    */
@@ -98,17 +157,35 @@ export const intakeRouter = router({
           orderBy: { createdAt: 'desc' },
           take: limit + 1,
           ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+          include: {
+            conflictChecks: { orderBy: { performedAt: 'desc' }, take: 1 },
+          },
         }),
         ctx.prisma.lead.count({ where }),
       ]);
 
+      // Fetch contacts for all leads in a single query
+      const contactIds = items
+        .map((l) => l.prospectiveClientContactId)
+        .filter((id): id is string => !!id);
+      const contacts = contactIds.length > 0
+        ? await ctx.prisma.contact.findMany({ where: { id: { in: contactIds } } })
+        : [];
+      const contactMap = new Map(contacts.map((c) => [c.id, c]));
+      const enriched = items.map((lead) => ({
+        ...lead,
+        contact: lead.prospectiveClientContactId
+          ? contactMap.get(lead.prospectiveClientContactId) ?? null
+          : null,
+      }));
+
       let nextCursor: string | null = null;
-      if (items.length > limit) {
-        const last = items.pop()!;
+      if (enriched.length > limit) {
+        const last = enriched.pop()!;
         nextCursor = last.id;
       }
 
-      return { items, nextCursor, total };
+      return { items: enriched, nextCursor, total };
     }),
 
   /**
