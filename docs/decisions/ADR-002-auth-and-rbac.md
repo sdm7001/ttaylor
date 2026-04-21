@@ -1,258 +1,273 @@
 # ADR-002: Authentication and Role-Based Access Control
 
-**Status**: Accepted
-**Date**: 2026-04-20
-**Decision Makers**: Architecture team
-**Supersedes**: None
-**Related**: ADR-001 (System Topology)
+**Status:** Accepted
+**Date:** 2026-04-21
+**Deciders:** Architect, Security Lead
+**Supersedes:** None
 
 ---
 
 ## Context
 
-The platform handles confidential legal data including attorney-client privileged communications, sealed court records, financial trust accounts, protective order details, and Address Confidentiality Program (ACP) participant information. Unauthorized access to this data could result in:
+The Ttaylor platform handles legally privileged data: attorney-client communications, financial records, Social Security numbers (last four digits), driver's license numbers, and children's personal information. The security requirements are not optional preferences -- they are driven by:
 
-- **Disciplinary action** against attorneys (Texas Disciplinary Rules of Professional Conduct Rule 1.05)
-- **Criminal liability** for ACP address disclosure (Texas Code of Criminal Procedure Chapter 56B)
-- **Malpractice claims** from confidentiality breaches
-- **Loss of attorney-client privilege** for inadequately protected communications
-
-The platform serves two fundamentally different user populations:
-
-1. **Staff users** — Attorneys, paralegals, legal assistants, receptionists, and administrators who work within the firm and need varying levels of access to all matters and system functions.
-2. **Portal clients** — Clients of the firm who need limited, read-mostly access to their own matters through a self-service portal.
-
-These populations have completely different security profiles, access patterns, trust levels, and risk tolerances.
-
-### Options Considered
-
-**Option A: Unified auth system for both populations**
-- Single authentication provider, single session model, role-based differentiation.
-- Pros: Simpler implementation, single identity provider.
-- Cons: Shared attack surface. A vulnerability in the portal auth could escalate to staff functions. Portal users exist in a lower-trust environment (public internet, unmanaged devices) and should not share authentication infrastructure with staff users who access privileged data.
-
-**Option B: Separate auth systems with shared identity store**
-- Two authentication pathways (staff and portal) with independent session models, both backed by a shared user/contact database.
-- Pros: Clean security boundary. Portal compromise cannot escalate to staff access. Each system can be hardened independently. Session models can differ (long-lived staff sessions with MFA vs. short-lived portal tokens).
-- Cons: More implementation complexity. Must maintain two auth flows.
+1. **Attorney-client privilege** -- unauthorized access to matter data could waive privilege. Access must be strictly scoped to users with a legitimate need.
+2. **Texas Disciplinary Rules of Professional Conduct** -- attorneys must supervise non-attorney staff. The platform must enforce that certain actions (filing approval, conflict clearance) can only be performed by licensed attorneys.
+3. **Multi-role staff** -- a senior paralegal may also serve as an intake specialist. A user may hold multiple roles simultaneously, and their effective permissions are the union of all granted role permissions.
+4. **Client portal isolation** -- clients must never see other clients' data, staff-only notes, financial details beyond their own invoices, or internal workflow states. The client portal is a separate trust boundary.
+5. **Audit requirements** -- every permission-checked action must produce an audit trail entry. Regulatory inquiries, malpractice defense, and bar complaints all require demonstrating who accessed what and when.
+6. **MFA for staff** -- given the sensitivity of the data, staff accounts must support TOTP-based multi-factor authentication, with the ability to require MFA for specific roles (attorneys, admins).
 
 ---
 
 ## Decision
 
-**Separate authentication systems for staff and portal users, with distinct session models and security requirements.**
+### Authentication: Clerk
 
-### Staff Authentication
+Use **Clerk** as the authentication provider for both the staff application and the client portal.
 
-- **Method**: Session-based authentication with server-side session storage (Redis-backed).
-- **MFA**: Mandatory for all staff users. TOTP (authenticator app) as primary method; WebAuthn/FIDO2 as recommended method for attorneys. No SMS-based MFA (SIM swap vulnerability unacceptable for legal data).
-- **Session duration**: 8-hour maximum session lifetime. 30-minute idle timeout. Re-authentication required for sensitive operations (financial transactions, filing submissions, matter access changes).
-- **Password requirements**: Minimum 12 characters, checked against breached password databases (Have I Been Pwned API), no composition rules (per NIST 800-63B).
-- **Login controls**: Account lockout after 5 failed attempts (30-minute lockout). IP-based rate limiting. Login anomaly detection (new device, unusual location, unusual time).
-- **Session storage**: Server-side sessions stored in Redis with encryption at rest. Session ID transmitted via HttpOnly, Secure, SameSite=Strict cookie. No session data in client-accessible storage.
+**Rationale:**
+- Clerk provides hosted authentication UI (sign-in, sign-up, MFA enrollment), eliminating the need to build and maintain password hashing, session management, CSRF protection, and MFA TOTP flows from scratch.
+- Clerk supports organization-scoped sessions, allowing the staff application and client portal to operate as separate organizations with isolated user pools.
+- Clerk's JWT includes custom claims, which we populate with the user's role slugs and organization ID at session creation.
+- Clerk handles email verification, password reset, and brute-force protection out of the box.
 
-### Portal Authentication
+**Integration pattern:**
+- Clerk middleware runs on every Next.js request (both staff app and client portal).
+- On first Clerk sign-in, a webhook syncs the Clerk user ID to the `users` table, creating or linking the internal user record. The `users.clerk_id` column stores this mapping.
+- The `password_hash` column in the `users` table is retained for offline/backup authentication scenarios but is not the primary auth path.
+- JWT custom claims are populated via Clerk's `session.claims` webhook, injecting `roles: string[]` and `org_id: string` from the internal RBAC tables.
 
-- **Method**: Token-based authentication with short-lived JWTs.
-- **Access tokens**: 15-minute expiration. Signed with RS256. Contains minimal claims (user ID, matter IDs, role).
-- **Refresh tokens**: 7-day expiration. Stored server-side with device binding. Rotated on each use (refresh token rotation). Revocable by staff.
-- **Initial access**: Client receives a secure invitation link (single-use, 72-hour expiration) to set up their portal account. Link sent to verified email or delivered in person.
-- **MFA**: Optional but encouraged. Offered during setup. Not mandatory because portal access is inherently limited in scope.
-- **Scope**: Portal tokens grant access only to the specific matters the client is a party to. No cross-matter visibility. No access to staff functions, other clients' data, or system configuration.
+### Authorization: Custom RBAC
 
----
+Build a **custom role-based access control system** using the existing `roles`, `permissions`, `user_roles`, and `role_permissions` tables defined in the Schema Canon.
 
-## RBAC Model
+#### Roles
 
-### Role Definitions
+Six seeded roles, aligned with firm hierarchy:
 
-| Role | Description | Population | License Count |
-|------|-------------|-----------|---------------|
-| **Attorney** | Licensed attorney at the firm. Full access to matters they are assigned to. Can approve documents, authorize filings, and manage client relationships. | Staff | Per-attorney |
-| **Paralegal** | Paralegal performing substantive legal work under attorney supervision. Can draft documents, manage workflows, communicate with clients, and prepare filings. Cannot approve filings or provide legal advice. | Staff | Per-seat |
-| **Legal Assistant** | Administrative support staff. Can manage calendars, handle correspondence, update contact information, and perform data entry. Cannot draft legal documents or access financial trust data. | Staff | Per-seat |
-| **Receptionist** | Front desk / intake staff. Can create leads, schedule consultations, and access basic contact information. Cannot access matter details, documents, or financial data. | Staff | Per-seat |
-| **Admin** | System administrator. Can manage users, roles, system configuration, and audit logs. Does not automatically have access to matter content (must be separately granted). | Staff | Limited |
-| **Portal Client** | Client of the firm accessing the self-service portal. Can view their own matter status, access shared documents, send messages to their attorney/paralegal, and view billing statements. | Portal | Unlimited |
+| Role | Slug | Description | System Role |
+|------|------|-------------|-------------|
+| Administrator | `admin` | Full platform access, user management, configuration | Yes |
+| Attorney | `attorney` | All staff operations + attorney-gated actions (filing approval, conflict clearance) | Yes |
+| Senior Paralegal | `senior_paralegal` | Full matter management, document generation, filing packet assembly | Yes |
+| Paralegal | `paralegal` | Standard matter work, document drafting, limited filing access | Yes |
+| Intake Specialist | `intake_specialist` | Lead management, intake questionnaires, conflict check initiation | Yes |
+| Billing Clerk | `billing_clerk` | Financial module access, invoice generation, payment recording | Yes |
 
-### Permission Model
+Additional custom roles can be created by admins. System roles cannot be deleted or renamed.
 
-Permissions follow a **resource + action** pattern. Each permission grants the ability to perform a specific action on a specific resource type.
+#### Permissions
 
-#### Core Permissions
+Permissions follow the `resource:action` format. Every permission is a row in the `permissions` table.
 
-| Permission | Description | Attorney | Paralegal | Legal Asst | Reception | Admin |
-|-----------|-------------|----------|-----------|------------|-----------|-------|
-| `matters:read` | View matter details and status | Yes | Yes | Yes (limited) | No | Audit only |
-| `matters:write` | Create and update matters | Yes | Yes | No | No | No |
-| `matters:assign` | Assign staff to matters | Yes | No | No | No | Yes |
-| `contacts:read` | View contact records | Yes | Yes | Yes | Yes (basic) | No |
-| `contacts:write` | Create and update contacts | Yes | Yes | Yes | Yes (leads only) | No |
-| `documents:read` | View documents | Yes | Yes | No | No | No |
-| `documents:write` | Create and edit documents | Yes | Yes | No | No | No |
-| `documents:attorney_review` | Approve documents for filing | Yes | No | No | No | No |
-| `filing_packets:read` | View filing packets | Yes | Yes | No | No | No |
-| `filing_packets:write` | Create and edit filing packets | Yes | Yes | No | No | No |
-| `filing_packets:approve` | Authorize filing submission | Yes | No | No | No | No |
-| `calendar:read` | View calendar events | Yes | Yes | Yes | Yes (own) | No |
-| `calendar:write` | Create and update events | Yes | Yes | Yes | Yes (consult only) | No |
-| `discovery:read` | View discovery items | Yes | Yes | No | No | No |
-| `discovery:write` | Manage discovery workflow | Yes | Yes | No | No | No |
-| `financial:read` | View billing and trust data | Yes | Yes (billing only) | No | No | No |
-| `financial:write` | Create invoices, record payments | Yes | Yes (time entry only) | No | No | No |
-| `financial:trust` | Manage IOLTA trust transactions | Yes | No | No | No | No |
-| `leads:read` | View leads | Yes | Yes | Yes | Yes | No |
-| `leads:write` | Create and update leads | Yes | Yes | Yes | Yes | No |
-| `conflict:check` | Run conflict checks | Yes | Yes | No | No | No |
-| `conflict:resolve` | Resolve flagged conflicts | Yes | No | No | No | No |
-| `users:read` | View user accounts | No | No | No | No | Yes |
-| `users:write` | Manage user accounts and roles | No | No | No | No | Yes |
-| `audit:read` | View audit logs | Yes | No | No | No | Yes |
-| `system:config` | Modify system configuration | No | No | No | No | Yes |
+**Core permission set:**
 
-#### Portal Client Permissions
+| Permission Key | Description | admin | attorney | senior_paralegal | paralegal | intake_specialist | billing_clerk |
+|---------------|-------------|:-----:|:--------:|:----------------:|:---------:|:-----------------:|:-------------:|
+| `matter:create` | Create a new matter from a converted lead | x | x | x | | | |
+| `matter:read` | View matter details (scoped to assigned matters for non-admin) | x | x | x | x | | |
+| `matter:update` | Edit matter metadata (status, type, assigned staff) | x | x | x | | | |
+| `matter:delete` | Soft-delete a matter | x | x | | | | |
+| `matter:assign` | Assign/reassign staff to a matter | x | x | x | | | |
+| `document:create` | Generate a document from a template | x | x | x | x | | |
+| `document:read` | View documents on assigned matters | x | x | x | x | | |
+| `document:update` | Edit document content or metadata | x | x | x | x | | |
+| `document:approve` | Attorney approval of a document (requires `is_attorney` flag) | x | x | | | | |
+| `document:delete` | Soft-delete a document | x | x | x | | | |
+| `filing:assemble` | Create and manage filing packets | x | x | x | | | |
+| `filing:submit` | Submit a filing packet to eFileTexas (requires attorney approval) | x | x | | | | |
+| `filing:read` | View filing packet status and history | x | x | x | x | | |
+| `lead:create` | Create a new lead | x | x | x | x | x | |
+| `lead:read` | View lead details | x | x | x | x | x | |
+| `lead:update` | Update lead status, notes, assignment | x | x | x | x | x | |
+| `lead:convert` | Convert a lead into a matter | x | x | x | | | |
+| `conflict:initiate` | Start a conflict check | x | x | x | x | x | |
+| `conflict:clear` | Attorney clearance of a conflict check (requires `is_attorney`) | x | x | | | | |
+| `calendar:create` | Create calendar events and deadlines | x | x | x | x | | |
+| `calendar:read` | View calendar events on assigned matters | x | x | x | x | | |
+| `discovery:manage` | Create and track discovery requests/responses | x | x | x | x | | |
+| `financial:read` | View invoices, payments, trust balances | x | x | x | | | x |
+| `financial:create` | Generate invoices, record payments | x | x | | | | x |
+| `financial:approve` | Approve trust disbursements (requires `is_attorney`) | x | x | | | | |
+| `portal:manage` | Grant/revoke client portal access | x | x | x | | | |
+| `portal:view` | Client-side portal access (client role, not staff) | | | | | | |
+| `user:manage` | Create, deactivate, assign roles to staff users | x | | | | | |
+| `user:read` | View staff directory | x | x | x | x | x | x |
+| `report:view` | Access dashboard and report views | x | x | x | | | x |
+| `audit:read` | View audit log entries | x | x | | | | |
+| `checklist:manage` | Create and modify checklist templates | x | x | x | | | |
+| `note:create` | Add notes to matters | x | x | x | x | | |
+| `note:read` | Read notes on assigned matters | x | x | x | x | | |
+| `notification:manage` | Configure notification templates and preferences | x | | | | | |
 
-Portal clients have a separate, minimal permission set:
+#### Enforcement Architecture
 
-| Permission | Description |
-|-----------|-------------|
-| `portal:matters:read` | View status and summary of own matters only |
-| `portal:documents:read` | View documents explicitly shared by staff |
-| `portal:messages:read` | Read messages from attorney/paralegal |
-| `portal:messages:write` | Send messages to attorney/paralegal |
-| `portal:billing:read` | View own invoices and payment status |
-| `portal:billing:pay` | Make payments on outstanding invoices |
-| `portal:profile:write` | Update own contact information |
+```
+Client Request
+      |
+      v
+[Clerk Middleware] -- verifies JWT, extracts clerk_id
+      |
+      v
+[tRPC Context] -- looks up internal user by clerk_id,
+                   loads roles[] and permissions[] into ctx.user
+      |
+      v
+[tRPC Procedure] -- calls requirePermission('matter:create')
+      |              which checks ctx.user.permissions.includes('matter:create')
+      |              throws TRPCError('FORBIDDEN') if denied
+      |
+      v
+[Audit Middleware] -- logs { user_id, permission_key, resource_type,
+                     resource_id, action, granted: boolean, ip, timestamp }
+                     to audit_events table
+      |
+      v
+[Business Logic] -- executes only after permission check passes
+```
 
----
+**Key enforcement rules:**
 
-## Matter-Level Access Restrictions
-
-Beyond role-based permissions, the platform enforces **matter-level visibility restrictions** for sensitive case types:
-
-### Restriction Levels
-
-| Level | Trigger | Effect |
-|-------|---------|--------|
-| **Standard** | Default for all matters | Visible to all staff with appropriate role permissions |
-| **Restricted** | Attorney marks matter as restricted | Visible only to staff explicitly assigned to the matter. Other staff with the same role cannot see the matter in search results, dashboards, or reports. |
-| **ACP Protected** | Party enrolled in Address Confidentiality Program | All standard restrictions plus: actual physical address suppressed from all views and documents; only ACP substitute address displayed; address fields encrypted with separate key; audit logging on any address field access. |
-| **Sealed** | Court order sealing records | All restricted protections plus: matter does not appear in any reports or aggregate statistics; access logged and reviewed monthly; export/print disabled except by attorney. |
-| **Juvenile** | Matter involves juvenile records | All restricted protections plus: compliance with Texas Family Code confidentiality requirements for juvenile proceedings; name redaction in any cross-matter context. |
-
-### Enforcement
-
-Matter-level restrictions are enforced at the database query level using PostgreSQL row-level security policies, not just at the application layer. This provides defense in depth — even if an application-level access check is bypassed, the database will not return restricted rows to unauthorized sessions.
-
-The identity module exposes a `getAccessibleMatterIds(userId)` function that returns the set of matter IDs visible to a given user, accounting for both their role and any matter-level restrictions. All other modules use this function as a filter on all matter-related queries.
-
----
-
-## Rationale
-
-### Why separate auth systems?
-
-The primary driver is **blast radius containment**. Portal clients access the system from unmanaged devices over the public internet. If a portal authentication vulnerability is exploited, the attacker gains access to a single client's limited portal view — not to staff functions, other clients' data, or privileged legal information.
-
-A unified auth system would mean a single session hijacking vulnerability could potentially escalate from portal access to full staff access. The legal and professional consequences of such a breach are severe enough to justify the additional implementation complexity of separation.
-
-### Why session-based for staff and token-based for portal?
-
-Staff users work in long sessions on managed devices. Session-based auth with server-side storage provides: immediate revocation capability (critical when an employee is terminated), no client-side token storage to steal, and simpler MFA re-verification for sensitive operations.
-
-Portal clients access the system intermittently from mobile devices and browsers. Token-based auth with short-lived access tokens provides: stateless API access (portal is a lighter-weight SPA), automatic expiration without server-side cleanup, and device-bound refresh tokens for reasonable session continuity without long-lived server sessions.
-
-### Why mandatory MFA for staff?
-
-Legal data confidentiality is a professional obligation, not just a best practice. A single compromised staff credential could expose privileged communications for every matter in the system. MFA is the single most effective control against credential-based attacks. There is no acceptable tradeoff between convenience and the risk of a privileged data breach.
-
-### Why RBAC maps to law office roles?
-
-The role model directly maps to how law offices actually operate. Attorneys have professional obligations (document approval, filing authorization) that cannot be delegated. Paralegals perform substantive work under attorney supervision. Legal assistants handle administrative tasks. Receptionists manage intake. This is not an arbitrary hierarchy — it reflects legal and ethical requirements of law practice.
+1. **All permission checks are server-side.** The frontend may hide UI elements based on the user's role for UX purposes, but the tRPC procedure always re-checks permissions. The client is never trusted.
+2. **Attorney-gated actions have a double check.** Actions like `document:approve`, `conflict:clear`, and `financial:approve` require both the permission AND the `users.is_attorney` flag to be true. Having the permission without being a licensed attorney is insufficient.
+3. **Matter-scoped access.** For roles below `admin`, `matter:read` and related permissions are scoped to matters where the user appears in `matter_assignments`. An attorney or admin can see all matters; a paralegal sees only their assigned matters.
+4. **Client portal is a separate namespace.** Client portal users authenticate through a separate Clerk organization. Their JWT contains `org_type: 'portal'`, and the tRPC context enforces that portal users can only call portal-namespaced procedures. No staff procedure is callable from the portal context.
+5. **All permission checks are logged.** Every call to `requirePermission()` writes to `audit_events` regardless of whether access was granted or denied. Denied access attempts are flagged for security review.
 
 ---
 
 ## Consequences
 
 ### Positive
-- **Defense in depth** — Multiple layers of access control (auth separation, RBAC, matter-level restrictions, database RLS) means no single failure exposes the full system.
-- **Clear audit trail** — Every access decision is logged with actor, resource, action, and result. Supports compliance and malpractice defense.
-- **Role clarity** — Staff understand what they can and cannot do based on their familiar office role, not abstract permission names.
-- **ACP compliance** — Address suppression is built into the access control model, not bolted on as an afterthought.
+
+1. **Separation of authentication and authorization** -- Clerk handles the complex, security-critical authentication flows (password hashing, MFA, session management) while the custom RBAC gives full control over domain-specific permission logic.
+2. **Fine-grained permissions** -- the `resource:action` model allows precise control. A billing clerk can generate invoices but cannot view matter notes. A paralegal can draft documents but cannot approve them.
+3. **Audit completeness** -- every permission check produces an audit record, providing a defensible log for regulatory inquiries and malpractice defense.
+4. **Role composability** -- users can hold multiple roles. A user who is both `attorney` and `admin` gets the union of both permission sets without special-case logic.
+5. **Portal isolation** -- the separate Clerk organization and namespace enforcement makes it architecturally impossible for a client portal bug to expose staff data.
 
 ### Negative
-- **Implementation complexity** — Two auth systems require more code, more testing, and more security review than a single system.
-- **User management overhead** — Admin must manage staff accounts and portal invitations through different interfaces.
-- **MFA friction** — Mandatory MFA adds friction to staff login. Must invest in good UX (remember device for 30 days, WebAuthn for low-friction MFA).
-- **Permission granularity** — 30+ permissions across 6 roles requires careful testing of every role-permission combination. Must have comprehensive permission integration tests.
 
-### Risks and Mitigations
+1. **Clerk dependency** -- authentication is coupled to a third-party SaaS. If Clerk has an outage, no one can log in. Mitigation: the `password_hash` column is retained for emergency fallback authentication via a local auth bypass (admin-only, requires server access).
+2. **Webhook complexity** -- Clerk-to-internal-user sync relies on webhooks. If a webhook fails, the internal user record may be stale. Mitigation: idempotent webhook handler with retry queue; periodic reconciliation job compares Clerk users to internal `users` table.
+3. **Permission explosion** -- with 30+ permissions and 6 roles, the `role_permissions` junction table has 100+ rows. Adding a new module means adding new permissions and updating every role. Mitigation: seed scripts manage the canonical permission set; a migration adds new permissions and grants them to appropriate roles atomically.
+4. **Custom RBAC maintenance** -- unlike an off-the-shelf authorization service, the RBAC logic must be maintained and tested as part of the application. Mitigation: comprehensive unit tests for the permission checker; integration tests verify that each role can/cannot perform expected operations.
 
-| Risk | Mitigation |
-|------|-----------|
-| Staff shares credentials to bypass MFA | Audit logging of login anomalies (multiple concurrent sessions, unusual IP); periodic access reviews |
-| Portal invitation link intercepted | Single-use links with 72-hour expiration; email verification; option for in-person delivery of access credentials |
-| Role creep (permissions gradually added) | Quarterly access reviews; principle of least privilege enforced by default; permission changes require Admin role and are audit logged |
-| ACP address leakage through reporting or exports | Address fields excluded from all aggregate queries; export functions check ACP status; dedicated integration tests for ACP suppression |
+---
+
+## Alternatives Considered
+
+### NextAuth.js (Auth.js)
+
+Open-source authentication library for Next.js with session and JWT support.
+
+**Rejected because:**
+- NextAuth provides authentication primitives but no built-in organization management, MFA enrollment UI, or user management dashboard. These would all need to be built from scratch.
+- Session management and CSRF protection require careful implementation. Clerk handles these as managed infrastructure.
+- NextAuth's adapter model would still require building the entire RBAC layer, so the authorization savings are zero.
+
+### Keycloak
+
+Self-hosted identity and access management with built-in RBAC, organization support, and admin console.
+
+**Rejected because:**
+- Keycloak is a Java application requiring its own JVM, database, and operational maintenance. For a small firm platform, this adds significant infrastructure burden.
+- Keycloak's RBAC model is generic. Mapping legal domain concepts (attorney-gated approvals, matter-scoped access, client portal isolation) into Keycloak's realm/client/role model would require extensive customization that negates the benefit of using an off-the-shelf solution.
+- The operational overhead of keeping Keycloak patched, backed up, and monitored exceeds the cost of Clerk's SaaS pricing for a sub-20-user deployment.
+
+### Fully Custom Authentication (No External Provider)
+
+Build password hashing (bcrypt), session management, CSRF tokens, MFA (TOTP), password reset flows, and brute-force protection in-house.
+
+**Rejected because:**
+- Authentication is a security-critical domain where subtle implementation bugs (timing attacks, session fixation, weak CSRF tokens) create real vulnerabilities. Using a battle-tested provider eliminates this class of risk.
+- The `users.password_hash` and `users.mfa_secret` columns exist in the schema for fallback purposes, but routing all primary authentication through them would require building and maintaining every auth flow that Clerk provides out of the box.
 
 ---
 
 ## Implementation Notes
 
-### Session Storage Schema (Redis)
+### Clerk Configuration
 
-```
-session:{sessionId} → {
-  userId: string,
-  role: Role,
-  mfaVerified: boolean,
-  mfaVerifiedAt: timestamp,
-  accessibleMatterIds: string[], // cached, refreshed on matter assignment change
-  ipAddress: string,
-  userAgent: string,
-  createdAt: timestamp,
-  lastActivityAt: timestamp
-}
-```
+- **Staff Organization:** Single Clerk organization for all firm staff. Users are invited by admin and cannot self-register.
+- **Portal Organization:** Separate Clerk organization for client portal users. Clients are invited per-matter by staff with `portal:manage` permission.
+- **MFA Policy:** MFA is required for `admin` and `attorney` roles. Optional but encouraged for other staff roles. Enforced via Clerk organization settings.
+- **Session Duration:** Staff sessions expire after 8 hours of inactivity (business day). Portal sessions expire after 30 minutes of inactivity.
+- **JWT Claims:** Custom claims added via Clerk session webhook:
+  ```json
+  {
+    "internal_user_id": "uuid",
+    "roles": ["attorney", "admin"],
+    "permissions": ["matter:create", "matter:read", "document:approve", "..."],
+    "org_type": "staff",
+    "is_attorney": true
+  }
+  ```
 
-### Permission Check Pattern
+### RBAC Seed Script
+
+The seed script in `database/seeds/` creates the canonical roles and permissions:
 
 ```typescript
-// All permission checks go through the identity module's service interface
-interface IdentityService {
-  checkPermission(userId: string, permission: string, resourceId?: string): Promise<boolean>;
-  getAccessibleMatterIds(userId: string): Promise<string[]>;
-  requirePermission(userId: string, permission: string, resourceId?: string): Promise<void>; // throws if denied
+// Pseudocode for seed structure
+const ROLES = ['admin', 'attorney', 'senior_paralegal', 'paralegal', 'intake_specialist', 'billing_clerk'];
+
+const PERMISSION_GRANTS: Record<string, string[]> = {
+  'admin': ['*'],  // Expanded to all permissions at seed time
+  'attorney': ['matter:*', 'document:*', 'filing:*', 'lead:*', 'conflict:*', 'calendar:*', 'discovery:*', 'financial:read', 'financial:approve', 'portal:manage', 'user:read', 'report:view', 'audit:read', 'checklist:manage', 'note:*'],
+  'senior_paralegal': ['matter:create', 'matter:read', 'matter:update', 'matter:assign', 'document:create', 'document:read', 'document:update', 'document:delete', 'filing:assemble', 'filing:read', 'lead:*', 'conflict:initiate', 'calendar:*', 'discovery:manage', 'financial:read', 'portal:manage', 'user:read', 'report:view', 'checklist:manage', 'note:*'],
+  'paralegal': ['matter:read', 'document:create', 'document:read', 'document:update', 'filing:read', 'lead:create', 'lead:read', 'lead:update', 'conflict:initiate', 'calendar:*', 'discovery:manage', 'user:read', 'note:*'],
+  'intake_specialist': ['lead:*', 'conflict:initiate', 'user:read'],
+  'billing_clerk': ['financial:read', 'financial:create', 'user:read', 'report:view'],
+};
+```
+
+### tRPC Permission Middleware
+
+```typescript
+// packages/auth/src/middleware.ts
+export function requirePermission(...keys: PermissionKey[]) {
+  return middleware(async ({ ctx, next }) => {
+    const { user } = ctx;
+    if (!user) throw new TRPCError({ code: 'UNAUTHORIZED' });
+
+    const granted = keys.every(key => user.permissions.includes(key));
+
+    // Always log the check
+    await ctx.audit.log({
+      userId: user.id,
+      permissionKeys: keys,
+      granted,
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
+    });
+
+    if (!granted) throw new TRPCError({ code: 'FORBIDDEN' });
+
+    return next({ ctx });
+  });
+}
+
+export function requireAttorney() {
+  return middleware(async ({ ctx, next }) => {
+    if (!ctx.user?.isAttorney) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'This action requires a licensed attorney.',
+      });
+    }
+    return next({ ctx });
+  });
 }
 ```
 
-### Database Row-Level Security
+### Client Portal Isolation
 
-```sql
--- Example RLS policy for matters table
-CREATE POLICY matter_access_policy ON matters
-  USING (
-    id IN (
-      SELECT matter_id FROM matter_assignments
-      WHERE user_id = current_setting('app.current_user_id')::uuid
-    )
-    OR
-    restriction_level = 'standard'
-    AND EXISTS (
-      SELECT 1 FROM users
-      WHERE id = current_setting('app.current_user_id')::uuid
-      AND role IN ('attorney', 'paralegal', 'legal_assistant')
-    )
-  );
-```
+The client portal tRPC router is a completely separate router definition from the staff router. It shares no procedures. The portal context always scopes queries to the authenticated client's `contact_id`, ensuring that:
 
----
+- `portal.getMyMatters()` returns only matters where the client is a linked contact with portal access.
+- `portal.getMyDocuments()` returns only documents explicitly shared via `portal_shared_documents`.
+- `portal.sendMessage()` creates a `portal_messages` record visible to staff on the matter but does not expose staff-to-staff notes.
 
-## References
-
-- Texas Disciplinary Rules of Professional Conduct, Rules 1.05, 1.06
-- Texas Code of Criminal Procedure, Chapter 56B (Address Confidentiality Program)
-- NIST Special Publication 800-63B (Digital Identity Guidelines — Authentication)
-- OWASP Authentication Cheat Sheet
-- ADR-001: System Topology
-- ADR-003: Document Automation and Filing Workflow
+No staff procedure is importable from the portal router. This is enforced by ESLint import boundaries and verified in CI.
