@@ -107,6 +107,71 @@ async function validatePacketInternal(
 
 export const filingRouter = router({
   /**
+   * List all filing packets across all matters (aggregate queue view).
+   * Powers the filing queue page. Includes matter info, item count, timestamps.
+   * Cursor-based pagination.
+   */
+  listQueue: protectedProcedure
+    .input(
+      z.object({
+        status: z.enum(filingPacketStatusValues).optional(),
+        cursor: z.string().cuid().nullish(),
+        limit: z.number().int().min(1).max(100).default(25),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const { status, cursor, limit } = input;
+
+      const where: Record<string, unknown> = {};
+      if (status) where.status = status;
+
+      const [items, total] = await Promise.all([
+        ctx.prisma.filingPacket.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          take: limit + 1,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+          include: {
+            matter: {
+              select: { id: true, title: true, causeNumber: true },
+            },
+            items: {
+              select: { id: true },
+            },
+            preparedBy: {
+              select: { id: true, firstName: true, lastName: true },
+            },
+          },
+        }),
+        ctx.prisma.filingPacket.count({ where }),
+      ]);
+
+      let nextCursor: string | null = null;
+      if (items.length > limit) {
+        const last = items.pop()!;
+        nextCursor = last.id;
+      }
+
+      return {
+        items: items.map((packet) => ({
+          id: packet.id,
+          title: packet.title,
+          status: packet.status,
+          filingType: packet.filingType,
+          courtName: packet.courtName,
+          causeNumber: packet.causeNumber,
+          itemCount: packet.items.length,
+          matter: packet.matter,
+          preparedBy: packet.preparedBy,
+          createdAt: packet.createdAt,
+          updatedAt: packet.updatedAt,
+        })),
+        nextCursor,
+        total,
+      };
+    }),
+
+  /**
    * Create a new filing packet in ASSEMBLING status.
    * Requires PARALEGAL or higher role.
    */

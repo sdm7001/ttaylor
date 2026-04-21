@@ -115,6 +115,12 @@ export default function LeadDetailPage() {
     onSuccess: () => utils.intake.getById.invalidate({ id: leadId }),
   });
 
+  // Fetch matter types and attorneys for convert form
+  const { data: matterTypesData } = trpc.matters.listMatterTypes.useQuery();
+  const { data: attorneysData } = trpc.users.listAttorneys.useQuery();
+  const matterTypes = matterTypesData ?? [];
+  const attorneys = attorneysData ?? [];
+
   // Convert to Matter state
   const [showConvertForm, setShowConvertForm] = useState(false);
   const [convertMatterType, setConvertMatterType] = useState('');
@@ -442,7 +448,6 @@ export default function LeadDetailPage() {
                       >
                         Matter Type
                       </label>
-                      {/* TODO: Fetch matter types from API when matterTypes.list endpoint is available */}
                       <select
                         style={{
                           width: '100%',
@@ -455,14 +460,11 @@ export default function LeadDetailPage() {
                         onChange={(e) => setConvertMatterType(e.target.value)}
                       >
                         <option value="">Select type...</option>
-                        <option value="divorce">Divorce</option>
-                        <option value="sapcr">SAPCR / Custody</option>
-                        <option value="child-support">Child Support</option>
-                        <option value="modification">Modification</option>
-                        <option value="adoption">Adoption</option>
-                        <option value="grandparents-rights">Grandparents&apos; Rights</option>
-                        <option value="mediation">Mediation</option>
-                        <option value="enforcement">Post-Order Enforcement</option>
+                        {matterTypes.map((mt) => (
+                          <option key={mt.id} value={mt.id}>
+                            {mt.name}
+                          </option>
+                        ))}
                       </select>
                     </div>
                     <div style={{ marginBottom: '12px' }}>
@@ -477,20 +479,24 @@ export default function LeadDetailPage() {
                       >
                         Assign Attorney
                       </label>
-                      {/* TODO: Fetch users with ATTORNEY role when users.list endpoint is available */}
-                      <input
+                      <select
                         style={{
                           width: '100%',
                           padding: '6px 10px',
                           fontSize: '13px',
                           border: '1px solid #CBD5E1',
                           borderRadius: '4px',
-                          boxSizing: 'border-box',
                         }}
                         value={convertAttorney}
                         onChange={(e) => setConvertAttorney(e.target.value)}
-                        placeholder="Attorney name or ID"
-                      />
+                      >
+                        <option value="">Select attorney...</option>
+                        {attorneys.map((att) => (
+                          <option key={att.id} value={att.id}>
+                            {att.firstName} {att.lastName}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                     <div style={{ display: 'flex', gap: '8px' }}>
                       <button
@@ -505,8 +511,6 @@ export default function LeadDetailPage() {
                           convertMutation.isPending
                         }
                         onClick={() => {
-                          // TODO: Map convertMatterType to actual matterType UUID from database
-                          // For now, use the string value as placeholder
                           convertMutation.mutate({
                             leadId,
                             matterTypeId: convertMatterType,

@@ -13,8 +13,7 @@ import { trpc } from '../../../../lib/trpc';
  * Sections cover basic information, marriage details (for divorce matters),
  * children, assets, employment, and existing court orders.
  *
- * TODO: Wire submit to real API endpoint once intake questionnaire
- * record creation is implemented on the backend.
+ * Submits answers via trpc.portal.submitQuestionnaire mutation.
  */
 
 const fieldStyle: React.CSSProperties = {
@@ -58,6 +57,17 @@ export default function IntakeQuestionnairePage() {
   );
 
   const [submitted, setSubmitted] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const submitQuestionnaire = trpc.portal.submitQuestionnaire.useMutation({
+    onSuccess: () => {
+      setSubmitted(true);
+      setSubmitError(null);
+    },
+    onError: (err) => {
+      setSubmitError(err.message || 'Failed to submit questionnaire');
+    },
+  });
 
   // Form state
   const [fullName, setFullName] = useState('');
@@ -174,10 +184,30 @@ export default function IntakeQuestionnairePage() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    // TODO: Submit questionnaire data to backend via tRPC once
-    // the intake questionnaire creation endpoint is implemented.
-    // For now, show the thank-you confirmation.
-    setSubmitted(true);
+    setSubmitError(null);
+
+    const answers: Record<string, unknown> = {
+      fullName,
+      dateOfBirth,
+      address,
+      city,
+      state,
+      zip,
+      ...(isDivorce ? { dateOfMarriage, dateOfSeparation, grounds } : {}),
+      ...((isDivorce || isSAPCR) ? { hasChildren, childrenDetails } : {}),
+      ownsRealProperty,
+      ownsVehicles,
+      hasBusinessInterests,
+      employer,
+      approximateIncome,
+      existingOrders,
+      orderDetails,
+    };
+
+    submitQuestionnaire.mutate({
+      matterId,
+      answers,
+    });
   }
 
   return (
@@ -568,8 +598,24 @@ export default function IntakeQuestionnairePage() {
 
         {/* Submit */}
         <div style={{ marginTop: '8px' }}>
+          {submitError && (
+            <div
+              style={{
+                marginBottom: '12px',
+                padding: '12px 16px',
+                borderRadius: '8px',
+                fontSize: '13px',
+                backgroundColor: '#fef2f2',
+                border: '1px solid #fecaca',
+                color: '#991b1b',
+              }}
+            >
+              {submitError}
+            </div>
+          )}
           <button
             type="submit"
+            disabled={submitQuestionnaire.isPending}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -578,13 +624,13 @@ export default function IntakeQuestionnairePage() {
               fontSize: '14px',
               fontWeight: 600,
               color: '#ffffff',
-              backgroundColor: '#1565C0',
+              backgroundColor: submitQuestionnaire.isPending ? '#94a3b8' : '#1565C0',
               border: 'none',
               borderRadius: '8px',
-              cursor: 'pointer',
+              cursor: submitQuestionnaire.isPending ? 'not-allowed' : 'pointer',
             }}
           >
-            Submit Questionnaire
+            {submitQuestionnaire.isPending ? 'Submitting...' : 'Submit Questionnaire'}
           </button>
         </div>
       </form>

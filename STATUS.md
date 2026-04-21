@@ -1,52 +1,52 @@
 # Ttaylor -- Delivery Status
 
 **Last Updated**: 2026-04-21
-**Current Phase**: Phase 8 Complete -- Release Packaging Done
-**Overall Status**: DEVELOPMENT COMPLETE -- Ready for Pilot Configuration
+**Phase**: Recovery Complete -- All 7 Phases Done
+**Overall Status**: FUNCTIONALLY COMPLETE -- Pending Production Configuration
 
 ## Phase Status
 
-| Phase | Name | Status | Key Outputs |
-|-------|------|--------|-------------|
-| 1 | Program Initialization | COMPLETE | 14 foundation docs, Prisma schema |
-| 2 | Domain and Architecture | COMPLETE | ERD, state machines, RBAC matrix, API conventions |
-| 3 | Design System and UX | COMPLETE | Component library, staff-web app shell |
-| 4 | Platform Foundation | COMPLETE | tRPC API, auth context, database seeds |
-| 5 | Core Workflows | COMPLETE | Checklist engine, state machines, calendar, contacts |
-| 6 | Legal Operations | COMPLETE | Filing, documents, discovery, financial, orders, client portal |
-| 7 | Hardening and QA | COMPLETE | 153 unit tests, integration tests, E2E scenarios |
-| 8 | Release Packaging | COMPLETE | Deployment guide, runbooks, READY_FOR_RELEASE.md |
+| Phase | Name | Status | Notes |
+|-------|------|--------|-------|
+| 1 | Repo Audit | COMPLETE | RECOVERY_AUDIT.md, FEATURE_COMPLETION_MATRIX.md, 6 audit docs |
+| 2 | Core Operating Loop | COMPLETE | Dashboard live, matters list, new matter form, filing in matter detail |
+| 3 | Intake and Conflict | COMPLETE | Intake list, new lead form, conflict check UI, lead conversion |
+| 4 | Legal Operations | COMPLETE | Doc generation, orders/compliance, audit log, reports wired |
+| 5 | Client Portal | COMPLETE | Messaging, shared docs, intake questionnaire |
+| 6 | Search and Reporting | COMPLETE | Global search, risk view, notes, matter pipeline report |
+| 7 | Hardening | COMPLETE | Security review, accessibility review, migration docs |
 
-## What's Built
+## API Coverage
 
-### Core Application
-- Staff web application (Next.js 14, Clerk auth, tRPC, all 10 sidebar sections)
-- Client portal (isolated Next.js app, read-only matter view, messages)
-- 9 tRPC routers: matters, documents, intake, audit, checklists, calendar, contacts, filing, discovery, financial, orders
+15 tRPC routers registered in `services/api/src/router.ts`:
 
-### Data Layer
-- 870-line Prisma schema (40+ tables, all 15 modules)
-- Seed data: 5 roles, 30 permissions, 9 Texas family law matter types
-- Database migrations ready
+| Router | Procedures | Role Gates | Audit Events |
+|--------|-----------|------------|--------------|
+| dashboard | 1 | Yes | N/A (read-only) |
+| matters | 4 | Yes | Yes |
+| documents | 7 | Yes | Yes |
+| intake | 4 | Yes | Yes |
+| audit | 2 | Yes | N/A (meta) |
+| checklists | 4 | Yes | Yes |
+| calendar | 4 | Yes | Yes |
+| contacts | 5 | Yes | Yes |
+| filing | 9 | Yes | Yes |
+| discovery | 5 | Yes | Yes |
+| financial | 5 | Yes | Yes |
+| orders | 5 | Yes | Yes |
+| portal | 4 | Yes | Yes |
+| search | 1 | Yes | N/A (read-only) |
+| notes | 2 | Yes | Yes |
 
-### Business Logic Packages
-- @ttaylor/workflows: matter state machine, checklist engine, Texas deadline calculator
-- @ttaylor/documents: Handlebars template engine, document lifecycle
-- @ttaylor/auth: RBAC permission constants, role-permission mappings
-- @ttaylor/domain: 10 enums, 25+ TypeScript interfaces
-- @ttaylor/ui: 9 React components, full design token system
+## Remaining Before Go-Live
 
-### Legal Controls
-- Attorney approval gates: document approval, filing packet submission, order creation
-- Filing packet validation: lead document required, Harris County format checks
-- Audit trail: every domain mutation logged to audit_events
-- Client portal isolation: separate Clerk organization, read-only access
-
-## Next Steps for Pilot
-1. Provision DigitalOcean VPS (see docs/runbooks/DEPLOYMENT.md)
-2. Configure Clerk production application + portal organization
-3. Set up managed PostgreSQL + Redis
-4. Run `make db-migrate && make db-seed`
-5. Load document templates for the firm's practice areas
-6. Create initial ADMIN user and configure staff roles
-7. Run E2E test scenarios against staging
+1. Run `make db-migrate && make db-seed` on production server
+2. Configure Clerk production org + portal org
+3. Set production DATABASE_URL, Redis URL, S3 credentials
+4. Obtain SSL certs (certbot) and configure DNS A records
+5. Load document templates for practice areas (.hbs files)
+6. Configure SMTP for email notifications
+7. Implement client-side role detection for UI button visibility
+8. Add rate limiting middleware
+9. Obtain eFileTexas API credentials for real court submission
+10. Create initial ADMIN user in Clerk and run smoke test

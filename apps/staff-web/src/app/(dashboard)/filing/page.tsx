@@ -1,31 +1,85 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { PageHeader, StatusPill, EmptyState, LoadingSpinner } from '@ttaylor/ui';
-import { Send, Briefcase } from 'lucide-react';
+import { Send, FileText } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 
-/**
- * Filing queue page.
- *
- * Since filing.listPackets requires a matterId (no aggregate endpoint yet),
- * this page shows the user's matters and lets them navigate to the matter
- * detail page to manage filing packets.
- *
- * TODO: Add a filing.listQueue aggregate endpoint so we can show all packets
- * across matters in a single view without N+1 queries.
- */
+// ---------------------------------------------------------------------------
+// Status filter tabs
+// ---------------------------------------------------------------------------
+
+const STATUS_TABS = [
+  { key: 'ALL', label: 'All' },
+  { key: 'ASSEMBLING', label: 'Draft' },
+  { key: 'READY_FOR_ATTORNEY_REVIEW', label: 'Ready for Review' },
+  { key: 'ATTORNEY_APPROVED', label: 'Attorney Approved' },
+  { key: 'SUBMITTED_TO_COURT', label: 'Submitted' },
+  { key: 'ACCEPTED', label: 'Accepted' },
+] as const;
+
+type StatusFilter = typeof STATUS_TABS[number]['key'];
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
 
 export default function FilingQueuePage() {
   const router = useRouter();
-  const { data: mattersData, isLoading } = trpc.matters.list.useQuery({ limit: 50 });
-  const matters = mattersData?.items ?? [];
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
 
-  if (isLoading) {
-    return (
-      <>
-        <PageHeader title="Filing Queue" />
+  const { data, isLoading } = trpc.filing.listQueue.useQuery({
+    status: statusFilter === 'ALL' ? undefined : statusFilter as any,
+    limit: 50,
+  });
+
+  const items = data?.items ?? [];
+
+  return (
+    <>
+      <PageHeader
+        title="Filing Queue"
+        subtitle={`${data?.total ?? 0} filing packets`}
+      />
+
+      {/* Status filter tabs */}
+      <div
+        style={{
+          display: 'flex',
+          gap: '2px',
+          borderBottom: '1px solid #e2e8f0',
+          marginBottom: '20px',
+        }}
+      >
+        {STATUS_TABS.map((tab) => {
+          const isActive = statusFilter === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setStatusFilter(tab.key)}
+              style={{
+                padding: '8px 14px',
+                fontSize: '13px',
+                fontWeight: isActive ? 600 : 500,
+                color: isActive ? '#1565C0' : '#64748b',
+                backgroundColor: 'transparent',
+                border: 'none',
+                borderBottom: isActive
+                  ? '3px solid #1565C0'
+                  : '3px solid transparent',
+                cursor: 'pointer',
+                transition: 'color 100ms ease, border-color 100ms ease',
+                marginBottom: '-1px',
+              }}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {isLoading ? (
         <div
           style={{
             display: 'flex',
@@ -36,24 +90,15 @@ export default function FilingQueuePage() {
         >
           <LoadingSpinner size="lg" />
         </div>
-      </>
-    );
-  }
-
-  return (
-    <>
-      <PageHeader
-        title="Filing Queue"
-        subtitle="Select a matter to manage its filing packets"
-      />
-
-      {/* TODO: Status filter tabs will be useful once filing.listQueue endpoint exists */}
-
-      {matters.length === 0 ? (
+      ) : items.length === 0 ? (
         <EmptyState
           icon={<Send size={40} />}
-          heading="No matters found"
-          body="Create a matter first, then you can manage its filing packets."
+          heading="No filing packets"
+          body={
+            statusFilter === 'ALL'
+              ? 'Create a filing packet from a matter detail page to get started.'
+              : `No packets with status "${statusFilter.replace(/_/g, ' ')}".`
+          }
           actionLabel="Go to Matters"
           onAction={() => router.push('/matters')}
         />
@@ -70,7 +115,7 @@ export default function FilingQueuePage() {
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: '1.5fr 1fr 1fr 140px',
+              gridTemplateColumns: '1.5fr 1fr 0.8fr 100px 140px 120px',
               gap: '0',
               padding: '10px 16px',
               backgroundColor: '#f8fafc',
@@ -82,26 +127,22 @@ export default function FilingQueuePage() {
               letterSpacing: '0.05em',
             }}
           >
+            <span>Packet</span>
             <span>Matter</span>
-            <span>Cause Number</span>
-            <span>Type</span>
+            <span>Filing Type</span>
+            <span>Items</span>
             <span>Status</span>
+            <span>Created</span>
           </div>
 
           {/* Table rows */}
-          {matters.map((matter: {
-            id: string;
-            title: string;
-            causeNumber?: string | null;
-            status: string;
-            matterType?: { name: string } | null;
-          }) => (
+          {items.map((packet) => (
             <div
-              key={matter.id}
-              onClick={() => router.push(`/matters/${matter.id}`)}
+              key={packet.id}
+              onClick={() => router.push(`/filing/${packet.id}`)}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '1.5fr 1fr 1fr 140px',
+                gridTemplateColumns: '1.5fr 1fr 0.8fr 100px 140px 120px',
                 gap: '0',
                 padding: '12px 16px',
                 borderBottom: '1px solid #f1f5f9',
@@ -119,8 +160,14 @@ export default function FilingQueuePage() {
               }}
             >
               <span style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Briefcase size={14} style={{ color: '#64748b' }} />
-                {matter.title}
+                <FileText size={14} style={{ color: '#64748b' }} />
+                {packet.title}
+              </span>
+              <span style={{ color: '#64748b', fontSize: '12px' }}>
+                {packet.matter?.title ?? '--'}
+              </span>
+              <span style={{ color: '#64748b', fontSize: '12px' }}>
+                {packet.filingType?.replace(/_/g, ' ') ?? '--'}
               </span>
               <span
                 style={{
@@ -129,13 +176,17 @@ export default function FilingQueuePage() {
                   color: '#64748b',
                 }}
               >
-                {matter.causeNumber ?? '--'}
-              </span>
-              <span style={{ color: '#64748b', fontSize: '12px' }}>
-                {matter.matterType?.name ?? '--'}
+                {packet.itemCount}
               </span>
               <span>
-                <StatusPill status={matter.status} />
+                <StatusPill status={packet.status} />
+              </span>
+              <span style={{ fontSize: '12px', color: '#94a3b8' }}>
+                {new Date(packet.createdAt).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric',
+                })}
               </span>
             </div>
           ))}

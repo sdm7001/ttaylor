@@ -23,6 +23,7 @@ import {
   Briefcase,
   Plus,
 } from 'lucide-react';
+import { useUser } from '@clerk/nextjs';
 import { trpc } from '@/lib/trpc';
 import { GenerateDocumentDialog } from '@/components/documents/GenerateDocumentDialog';
 
@@ -130,59 +131,219 @@ function OverviewTab({ matter }: { matter: any }) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function PartiesTab({ parties }: { parties: any[] }) {
-  if (!parties || parties.length === 0) {
-    return (
-      <EmptyState
-        heading="No parties added"
-        body="Add parties to this matter to track all involved contacts."
-        actionLabel="Add Party"
-        onAction={() => {
-          /* TODO: open add party dialog */
-        }}
-      />
-    );
+function PartiesTab({ parties, matterId }: { parties: any[]; matterId: string }) {
+  const utils = trpc.useUtils();
+  const [showAddParty, setShowAddParty] = useState(false);
+  const [partyFirstName, setPartyFirstName] = useState('');
+  const [partyLastName, setPartyLastName] = useState('');
+  const [partyRole, setPartyRole] = useState<string>('PETITIONER');
+  const [partyEmail, setPartyEmail] = useState('');
+  const [partyPhone, setPartyPhone] = useState('');
+  const [partyError, setPartyError] = useState<string | null>(null);
+
+  const addParty = trpc.matters.addParty.useMutation({
+    onSuccess: () => {
+      utils.matters.getById.invalidate({ id: matterId });
+      setShowAddParty(false);
+      setPartyFirstName('');
+      setPartyLastName('');
+      setPartyRole('PETITIONER');
+      setPartyEmail('');
+      setPartyPhone('');
+      setPartyError(null);
+    },
+    onError: (err) => {
+      setPartyError(err.message || 'Failed to add party');
+    },
+  });
+
+  const partyFieldStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '8px 12px',
+    fontSize: '14px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '6px',
+    outline: 'none',
+    color: '#0f172a',
+    backgroundColor: '#ffffff',
+    boxSizing: 'border-box' as const,
+  };
+
+  function handleAddParty() {
+    setPartyError(null);
+    if (!partyFirstName.trim() || !partyLastName.trim()) {
+      setPartyError('First and last name are required');
+      return;
+    }
+    addParty.mutate({
+      matterId,
+      firstName: partyFirstName.trim(),
+      lastName: partyLastName.trim(),
+      partyRole: partyRole as any,
+      email: partyEmail.trim() || undefined,
+      phone: partyPhone.trim() || undefined,
+    });
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-      {parties.map((party: any) => (
-        <Card key={party.id}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 600, fontSize: '14px', color: '#0f172a' }}>
-                {party.contact?.firstName} {party.contact?.lastName}
+    <div>
+      {/* Add Party button */}
+      <div style={{ marginBottom: '16px' }}>
+        <Button variant="primary" size="sm" onClick={() => setShowAddParty(!showAddParty)}>
+          <Plus size={14} style={{ marginRight: '4px' }} />
+          {showAddParty ? 'Cancel' : 'Add Party'}
+        </Button>
+      </div>
+
+      {/* Add Party dialog (inline overlay) */}
+      {showAddParty && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowAddParty(false);
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '12px',
+              padding: '24px',
+              width: '480px',
+              maxWidth: '90vw',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
+            }}
+          >
+            <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
+              Add Party
+            </h3>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>
+                  First Name <span style={{ color: '#dc2626' }}>*</span>
+                </label>
+                <input style={partyFieldStyle} value={partyFirstName} onChange={(e) => setPartyFirstName(e.target.value)} />
               </div>
-              {party.contact?.email && (
-                <div style={{ fontSize: '13px', color: '#64748b' }}>
-                  {party.contact.email}
-                </div>
-              )}
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>
+                  Last Name <span style={{ color: '#dc2626' }}>*</span>
+                </label>
+                <input style={partyFieldStyle} value={partyLastName} onChange={(e) => setPartyLastName(e.target.value)} />
+              </div>
             </div>
-            <Badge status={party.roleType ?? party.role} label={(party.roleType ?? party.role ?? '').replace(/_/g, ' ')} />
-            {party.adverseFlag && (
-              <span
-                style={{
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  color: '#dc2626',
-                  backgroundColor: '#fef2f2',
-                  padding: '2px 8px',
-                  borderRadius: '4px',
-                }}
+
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>
+                Role <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <select
+                style={{ ...partyFieldStyle, appearance: 'auto' as const }}
+                value={partyRole}
+                onChange={(e) => setPartyRole(e.target.value)}
               >
-                ADVERSE
-              </span>
+                <option value="PETITIONER">Petitioner</option>
+                <option value="RESPONDENT">Respondent</option>
+                <option value="CHILD">Child</option>
+                <option value="WITNESS">Witness</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>
+                  Email
+                </label>
+                <input style={partyFieldStyle} type="email" value={partyEmail} onChange={(e) => setPartyEmail(e.target.value)} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>
+                  Phone
+                </label>
+                <input style={partyFieldStyle} type="tel" value={partyPhone} onChange={(e) => setPartyPhone(e.target.value)} />
+              </div>
+            </div>
+
+            {partyError && (
+              <div style={{ marginBottom: '12px', fontSize: '13px', color: '#dc2626' }}>
+                {partyError}
+              </div>
             )}
+
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <Button variant="secondary" size="sm" onClick={() => setShowAddParty(false)}>
+                Cancel
+              </Button>
+              <Button variant="primary" size="sm" onClick={handleAddParty} disabled={addParty.isPending}>
+                {addParty.isPending ? 'Adding...' : 'Add Party'}
+              </Button>
+            </div>
           </div>
-        </Card>
-      ))}
+        </div>
+      )}
+
+      {/* Party list */}
+      {(!parties || parties.length === 0) && !showAddParty ? (
+        <EmptyState
+          heading="No parties added"
+          body="Add parties to this matter to track all involved contacts."
+          actionLabel="Add Party"
+          onAction={() => setShowAddParty(true)}
+        />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          {parties.map((party: any) => (
+            <Card key={party.id}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: '14px', color: '#0f172a' }}>
+                    {party.contact?.firstName} {party.contact?.lastName}
+                  </div>
+                  {party.contact?.email && (
+                    <div style={{ fontSize: '13px', color: '#64748b' }}>
+                      {party.contact.email}
+                    </div>
+                  )}
+                </div>
+                <Badge status={party.roleType ?? party.role} label={(party.roleType ?? party.role ?? '').replace(/_/g, ' ')} />
+                {party.adverseFlag && (
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: '#dc2626',
+                      backgroundColor: '#fef2f2',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                    }}
+                  >
+                    ADVERSE
+                  </span>
+                )}
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 function DocumentsTab({ matterId }: { matterId: string }) {
+  const { user } = useUser();
+  const isAttorney = user?.publicMetadata?.role === 'ATTORNEY';
   const utils = trpc.useUtils();
   const [generateOpen, setGenerateOpen] = useState(false);
   const { data: docData, isLoading } = trpc.documents.list.useQuery({ matterId });
@@ -329,11 +490,11 @@ function DocumentsTab({ matterId }: { matterId: string }) {
                 )
               )}
 
-              {/* INTERNAL_REVIEW or ATTORNEY_REVIEW_REQUIRED: Approve / Reject */}
-              {(doc.lifecycleStatus === 'INTERNAL_REVIEW' ||
-                doc.lifecycleStatus === 'ATTORNEY_REVIEW_REQUIRED') && (
+              {/* INTERNAL_REVIEW or ATTORNEY_REVIEW_REQUIRED: Approve / Reject (attorney only) */}
+              {isAttorney &&
+                (doc.lifecycleStatus === 'INTERNAL_REVIEW' ||
+                  doc.lifecycleStatus === 'ATTORNEY_REVIEW_REQUIRED') && (
                 <>
-                  {/* TODO: Gate Approve/Reject to ATTORNEY role via Clerk user metadata */}
                   <Button
                     size="sm"
                     variant="primary"
@@ -548,8 +709,63 @@ function ChecklistGroup({
 }
 
 function CalendarTab({ matterId }: { matterId: string }) {
+  const utils = trpc.useUtils();
   const now = new Date();
   const endDate = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+
+  const [showAddEvent, setShowAddEvent] = useState(false);
+  const [eventTitle, setEventTitle] = useState('');
+  const [eventType, setEventType] = useState('HEARING');
+  const [scheduledAt, setScheduledAt] = useState('');
+  const [eventDescription, setEventDescription] = useState('');
+  const [eventError, setEventError] = useState<string | null>(null);
+
+  const createEvent = trpc.calendar.createEvent.useMutation({
+    onSuccess: () => {
+      utils.calendar.listEvents.invalidate({ matterId });
+      setShowAddEvent(false);
+      setEventTitle('');
+      setEventType('HEARING');
+      setScheduledAt('');
+      setEventDescription('');
+      setEventError(null);
+    },
+    onError: (err) => {
+      setEventError(err.message || 'Failed to create event');
+    },
+  });
+
+  const eventFieldStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '8px 12px',
+    fontSize: '14px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '6px',
+    outline: 'none',
+    color: '#0f172a',
+    backgroundColor: '#ffffff',
+    boxSizing: 'border-box' as const,
+  };
+
+  function handleCreateEvent() {
+    setEventError(null);
+    if (!eventTitle.trim()) {
+      setEventError('Title is required');
+      return;
+    }
+    if (!scheduledAt) {
+      setEventError('Date/time is required');
+      return;
+    }
+    createEvent.mutate({
+      matterId,
+      title: eventTitle.trim(),
+      eventType: eventType as any,
+      startAt: new Date(scheduledAt),
+      notes: eventDescription.trim() || undefined,
+      isCourtDate: eventType === 'HEARING',
+    });
+  }
 
   const { data, isLoading } = trpc.calendar.listEvents.useQuery({
     matterId,
@@ -564,21 +780,113 @@ function CalendarTab({ matterId }: { matterId: string }) {
   const events = data?.events ?? [];
   const deadlines = data?.deadlines ?? [];
 
-  if (events.length === 0 && deadlines.length === 0) {
+  if (events.length === 0 && deadlines.length === 0 && !showAddEvent) {
     return (
-      <EmptyState
-        heading="No events scheduled"
-        body="Add court dates, deadlines, and meetings for this matter."
-        actionLabel="Add Event"
-        onAction={() => {
-          /* TODO: open add event dialog */
-        }}
-      />
+      <div>
+        <div style={{ marginBottom: '16px' }}>
+          <Button variant="primary" size="sm" onClick={() => setShowAddEvent(true)}>
+            <Plus size={14} style={{ marginRight: '4px' }} />
+            Add Event
+          </Button>
+        </div>
+        <EmptyState
+          heading="No events scheduled"
+          body="Add court dates, deadlines, and meetings for this matter."
+          actionLabel="Add Event"
+          onAction={() => setShowAddEvent(true)}
+        />
+      </div>
     );
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Add Event button + dialog */}
+      <div>
+        <Button variant="primary" size="sm" onClick={() => setShowAddEvent(!showAddEvent)}>
+          <Plus size={14} style={{ marginRight: '4px' }} />
+          {showAddEvent ? 'Cancel' : 'Add Event'}
+        </Button>
+      </div>
+
+      {showAddEvent && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowAddEvent(false);
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '12px',
+              padding: '24px',
+              width: '480px',
+              maxWidth: '90vw',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
+            }}
+          >
+            <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
+              Add Event / Deadline
+            </h3>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>
+                Title <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <input style={eventFieldStyle} value={eventTitle} onChange={(e) => setEventTitle(e.target.value)} placeholder="e.g., Final Hearing" />
+            </div>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>
+                Event Type <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <select style={{ ...eventFieldStyle, appearance: 'auto' as const }} value={eventType} onChange={(e) => setEventType(e.target.value)}>
+                <option value="HEARING">Hearing</option>
+                <option value="DEADLINE">Deadline</option>
+                <option value="MEDIATION">Mediation</option>
+                <option value="DEPOSITION">Deposition</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </div>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>
+                Date / Time <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <input type="datetime-local" style={eventFieldStyle} value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} />
+            </div>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>
+                Description
+              </label>
+              <textarea
+                style={{ ...eventFieldStyle, minHeight: '60px', resize: 'vertical', fontFamily: 'inherit' }}
+                value={eventDescription}
+                onChange={(e) => setEventDescription(e.target.value)}
+              />
+            </div>
+            {eventError && (
+              <div style={{ marginBottom: '12px', fontSize: '13px', color: '#dc2626' }}>{eventError}</div>
+            )}
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <Button variant="secondary" size="sm" onClick={() => setShowAddEvent(false)}>Cancel</Button>
+              <Button variant="primary" size="sm" onClick={handleCreateEvent} disabled={createEvent.isPending}>
+                {createEvent.isPending ? 'Creating...' : 'Create Event'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {events.length > 0 && (
         <div>
           <h4
@@ -896,13 +1204,141 @@ function FilingTab({ matterId, matter }: { matterId: string; matter: { court?: s
   );
 }
 
-function FinancialTab() {
-  // TODO: integrate financial records
+function FinancialTab({ matterId }: { matterId: string }) {
+  const { data: summary, isLoading } = trpc.financial.getMatterSummary.useQuery({ matterId });
+
+  if (isLoading) {
+    return <LoadingSpinner size="md" />;
+  }
+
+  if (!summary || summary.entryCount === 0) {
+    return (
+      <EmptyState
+        heading="No financial records"
+        body="Financial tracking will appear here once invoices or payments are recorded."
+      />
+    );
+  }
+
+  function formatCurrency(val: unknown): string {
+    const num = Number(val);
+    if (isNaN(num)) return '$0.00';
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+    }).format(num);
+  }
+
   return (
-    <EmptyState
-      heading="No financial records"
-      body="Financial tracking will appear here once invoices or payments are recorded. (TODO)"
-    />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Summary cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+        <Card>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '12px', fontWeight: 500, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Total Billed
+            </div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a', marginTop: '4px' }}>
+              {formatCurrency(summary.totalBilled)}
+            </div>
+          </div>
+        </Card>
+        <Card>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '12px', fontWeight: 500, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Total Paid
+            </div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#16a34a', marginTop: '4px' }}>
+              {formatCurrency(summary.totalPaid)}
+            </div>
+          </div>
+        </Card>
+        <Card>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '12px', fontWeight: 500, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Outstanding
+            </div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#dc2626', marginTop: '4px' }}>
+              {formatCurrency(summary.outstandingBalance)}
+            </div>
+          </div>
+        </Card>
+        <Card>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: '12px', fontWeight: 500, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Trust Balance
+            </div>
+            <div style={{ fontSize: '20px', fontWeight: 700, color: '#7c3aed', marginTop: '4px' }}>
+              {formatCurrency(summary.trustBalance)}
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Recent payments */}
+      {summary.recentPayments && summary.recentPayments.length > 0 && (
+        <div>
+          <h4 style={{ margin: '0 0 8px', fontSize: '13px', fontWeight: 600, color: '#0f172a', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Recent Activity ({summary.recentPayments.length})
+          </h4>
+          <div
+            style={{
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              overflow: 'hidden',
+              backgroundColor: '#ffffff',
+            }}
+          >
+            {/* Header */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '120px 1fr 120px',
+                padding: '8px 16px',
+                backgroundColor: '#f8fafc',
+                borderBottom: '1px solid #e2e8f0',
+                fontSize: '11px',
+                fontWeight: 600,
+                color: '#64748b',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+              }}
+            >
+              <span>Date</span>
+              <span>Description</span>
+              <span style={{ textAlign: 'right' }}>Amount</span>
+            </div>
+            {summary.recentPayments.map((entry: { id: string; entryType: string; amount: unknown; occurredAt: string | Date; note: string | null }) => (
+              <div
+                key={entry.id}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '120px 1fr 120px',
+                  padding: '10px 16px',
+                  borderBottom: '1px solid #f1f5f9',
+                  fontSize: '13px',
+                  color: '#1e293b',
+                }}
+              >
+                <span style={{ color: '#64748b', fontSize: '12px' }}>
+                  {new Date(entry.occurredAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </span>
+                <span>
+                  <StatusPill status={entry.entryType} />
+                  {entry.note && (
+                    <span style={{ marginLeft: '8px', color: '#64748b', fontSize: '12px' }}>{entry.note}</span>
+                  )}
+                </span>
+                <span style={{ textAlign: 'right', fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", fontSize: '13px' }}>
+                  {formatCurrency(entry.amount)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1185,7 +1621,7 @@ export default function MatterDetailPage() {
       case 'overview':
         return <OverviewTab matter={matter} />;
       case 'parties':
-        return <PartiesTab parties={matter.parties ?? []} />;
+        return <PartiesTab parties={matter.parties ?? []} matterId={matterId} />;
       case 'documents':
         return <DocumentsTab matterId={matterId} />;
       case 'filing':
@@ -1195,7 +1631,7 @@ export default function MatterDetailPage() {
       case 'calendar':
         return <CalendarTab matterId={matterId} />;
       case 'financial':
-        return <FinancialTab />;
+        return <FinancialTab matterId={matterId} />;
       case 'notes':
         return <NotesTab matterId={matterId} />;
       default:

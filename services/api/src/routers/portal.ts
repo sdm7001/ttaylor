@@ -15,6 +15,77 @@ import { emitAuditEvent } from './audit';
 
 export const portalRouter = router({
   /**
+   * Submit intake questionnaire answers for a matter.
+   * Creates or updates an intake_questionnaire record.
+   * Emits an audit event so staff is notified.
+   */
+  submitQuestionnaire: protectedProcedure
+    .input(
+      z.object({
+        matterId: z.string(),
+        answers: z.record(z.string(), z.unknown()),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify matter exists
+      const matter = await ctx.prisma.matter.findUnique({
+        where: { id: input.matterId },
+      });
+
+      if (!matter) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: `Matter ${input.matterId} not found`,
+        });
+      }
+
+      // Upsert questionnaire: check if one already exists for this matter + user
+      const existing = await ctx.prisma.intakeQuestionnaire.findFirst({
+        where: {
+          matterId: input.matterId,
+          submittedByUserId: ctx.userId,
+        },
+      });
+
+      let questionnaire;
+      if (existing) {
+        questionnaire = await ctx.prisma.intakeQuestionnaire.update({
+          where: { id: existing.id },
+          data: {
+            answersJson: input.answers,
+            submittedAt: new Date(),
+          },
+        });
+      } else {
+        questionnaire = await ctx.prisma.intakeQuestionnaire.create({
+          data: {
+            matterId: input.matterId,
+            submittedByUserId: ctx.userId,
+            answersJson: input.answers,
+            submittedAt: new Date(),
+          },
+        });
+      }
+
+      await emitAuditEvent(ctx.prisma, {
+        eventType: 'CREATED',
+        actorId: ctx.userId,
+        entityType: 'IntakeQuestionnaire',
+        entityId: questionnaire.id,
+        metadata: {
+          matterId: input.matterId,
+          action: existing ? 'questionnaire_updated' : 'questionnaire_submitted',
+          answerCount: Object.keys(input.answers).length,
+        },
+      });
+
+      return {
+        id: questionnaire.id,
+        submittedAt: questionnaire.submittedAt,
+      };
+    }),
+
+  /**
    * Get messages for a matter's portal communication thread.
    */
   getMessages: protectedProcedure

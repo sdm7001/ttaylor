@@ -177,19 +177,25 @@ const columns: DataTableColumn<MatterRow>[] = [
 
 export default function FinancialPage() {
   const { data: mattersData, isLoading } = trpc.matters.list.useQuery({ limit: 100 });
+  const { data: portfolio } = trpc.financial.getPortfolioSummary.useQuery();
 
   const matterRows: MatterRow[] = (mattersData?.items ?? []) as unknown as MatterRow[];
+
+  const outstandingValue = portfolio
+    ? formatCurrency(Number(portfolio.totalOutstanding))
+    : '--';
+  const trustValue = portfolio
+    ? formatCurrency(Number(portfolio.totalTrustBalance))
+    : '--';
+  const billedValue = portfolio
+    ? formatCurrency(Number(portfolio.totalBilled))
+    : '--';
 
   return (
     <>
       <PageHeader title="Financial" />
 
-      {/* Summary cards */}
-      {/*
-       * TODO: These summary values require a `financial.getPortfolioSummary` aggregate
-       * endpoint that sums across all matters. That endpoint does not exist yet.
-       * Showing "--" to be honest rather than displaying fake zeros.
-       */}
+      {/* Summary cards -- wired to financial.getPortfolioSummary */}
       <div
         style={{
           display: 'grid',
@@ -201,19 +207,19 @@ export default function FinancialPage() {
         <SummaryCard
           icon={<DollarSign size={20} />}
           label="Total Outstanding"
-          value="--"
+          value={outstandingValue}
           color="#dc2626"
         />
         <SummaryCard
           icon={<Landmark size={20} />}
           label="Total in Trust"
-          value="--"
+          value={trustValue}
           color="#7c3aed"
         />
         <SummaryCard
           icon={<CreditCard size={20} />}
-          label="Payments This Month"
-          value="--"
+          label="Total Billed"
+          value={billedValue}
           color="#16a34a"
         />
       </div>

@@ -11,19 +11,19 @@ import { trpc } from '@/lib/trpc';
 // ---------------------------------------------------------------------------
 
 /**
- * The 9 Texas family law matter types from seed data.
- * These are hardcoded until a matterTypes.list endpoint exists.
+ * Matter types are now fetched from the API via trpc.matters.listMatterTypes.
+ * The MATTER_TYPES constant below is a fallback for when the API call is still loading.
  */
-const MATTER_TYPES = [
-  { id: 'divorce-uncontested', label: 'Divorce (Uncontested)' },
-  { id: 'divorce-contested', label: 'Divorce (Contested)' },
-  { id: 'sapcr-custody', label: 'SAPCR / Custody' },
-  { id: 'child-support', label: 'Child Support' },
-  { id: 'modification', label: 'Modification' },
-  { id: 'adoption', label: 'Adoption' },
-  { id: 'grandparents-rights', label: "Grandparents' Rights" },
-  { id: 'mediation', label: 'Mediation' },
-  { id: 'post-order-enforcement', label: 'Post-Order Enforcement' },
+const MATTER_TYPES_FALLBACK = [
+  { id: 'divorce-uncontested', name: 'Divorce (Uncontested)' },
+  { id: 'divorce-contested', name: 'Divorce (Contested)' },
+  { id: 'sapcr-custody', name: 'SAPCR / Custody' },
+  { id: 'child-support', name: 'Child Support' },
+  { id: 'modification', name: 'Modification' },
+  { id: 'adoption', name: 'Adoption' },
+  { id: 'grandparents-rights', name: "Grandparents' Rights" },
+  { id: 'mediation', name: 'Mediation' },
+  { id: 'post-order-enforcement', name: 'Post-Order Enforcement' },
 ] as const;
 
 const TOTAL_STEPS = 4;
@@ -237,6 +237,13 @@ export default function NewMatterPage() {
     matterNotes: '',
   });
 
+  // Queries for dropdowns
+  const { data: matterTypesData } = trpc.matters.listMatterTypes.useQuery();
+  const { data: attorneysData } = trpc.users.listAttorneys.useQuery();
+
+  const matterTypes = matterTypesData ?? MATTER_TYPES_FALLBACK.map((mt) => ({ id: mt.id, name: mt.name, category: null }));
+  const attorneys = attorneysData ?? [];
+
   // Mutations
   const createLead = trpc.intake.createLead.useMutation();
   const runConflictCheck = trpc.intake.runConflictCheck.useMutation();
@@ -373,7 +380,7 @@ export default function NewMatterPage() {
       const result = await convertToMatter.mutateAsync({
         leadId,
         matterTypeId: form.matterType,
-        assignedAttorneyId: form.assignedAttorney || leadId, // Placeholder: attorney user ID needed
+        assignedAttorneyId: form.assignedAttorney || leadId, // Uses real attorney userId from select dropdown
       });
 
       router.push(`/matters/${result.matterId}`);
@@ -398,14 +405,14 @@ export default function NewMatterPage() {
             gap: '8px',
           }}
         >
-          {MATTER_TYPES.map((mt) => {
+          {matterTypes.map((mt) => {
             const selected = form.matterType === mt.id;
             return (
               <button
                 key={mt.id}
                 onClick={() => {
                   updateField('matterType', mt.id);
-                  updateField('matterTypeLabel', mt.label);
+                  updateField('matterTypeLabel', mt.name);
                 }}
                 style={{
                   display: 'flex',
@@ -424,7 +431,7 @@ export default function NewMatterPage() {
                 }}
               >
                 {selected && <Check size={16} />}
-                {mt.label}
+                {mt.name}
               </button>
             );
           })}
@@ -596,12 +603,21 @@ export default function NewMatterPage() {
             />
           </FormField>
           <FormField label="Assigned Attorney">
-            <input
-              style={inputStyle}
+            <select
+              style={{
+                ...inputStyle,
+                appearance: 'auto' as const,
+              }}
               value={form.assignedAttorney}
               onChange={(e) => updateField('assignedAttorney', e.target.value)}
-              placeholder="Attorney name or ID (TODO: dropdown)"
-            />
+            >
+              <option value="">Select attorney...</option>
+              {attorneys.map((att) => (
+                <option key={att.id} value={att.id}>
+                  {att.firstName} {att.lastName}
+                </option>
+              ))}
+            </select>
           </FormField>
           <FormField label="Notes">
             <textarea
@@ -655,7 +671,14 @@ export default function NewMatterPage() {
             {form.court && <SummaryRow label="Court" value={form.court} />}
             {form.judge && <SummaryRow label="Judge" value={form.judge} />}
             {form.assignedAttorney && (
-              <SummaryRow label="Attorney" value={form.assignedAttorney} />
+              <SummaryRow
+                label="Attorney"
+                value={
+                  attorneys.find((a) => a.id === form.assignedAttorney)
+                    ? `${attorneys.find((a) => a.id === form.assignedAttorney)!.firstName} ${attorneys.find((a) => a.id === form.assignedAttorney)!.lastName}`
+                    : form.assignedAttorney
+                }
+              />
             )}
             {form.matterNotes && (
               <SummaryRow label="Matter Notes" value={form.matterNotes} />

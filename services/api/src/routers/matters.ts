@@ -23,6 +23,100 @@ const matterStatusValues = Object.values(MatterStatus) as [string, ...string[]];
 
 export const mattersRouter = router({
   /**
+   * List all matter types for the organization.
+   * Used to populate matter type dropdowns.
+   */
+  listMatterTypes: protectedProcedure.query(async ({ ctx }) => {
+    const types = await ctx.prisma.matterType.findMany({
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        category: true,
+      },
+    });
+
+    return types;
+  }),
+
+  /**
+   * Add a party to a matter.
+   * Creates a contact (if needed) and links them as a MatterParty.
+   */
+  addParty: protectedProcedure
+    .use(requireRole('PARALEGAL', 'ATTORNEY', 'ADMIN'))
+    .input(
+      z.object({
+        matterId: z.string().cuid(),
+        firstName: z.string().min(1).max(100),
+        lastName: z.string().min(1).max(100),
+        partyRole: z.enum(['PETITIONER', 'RESPONDENT', 'CHILD', 'WITNESS', 'OTHER']),
+        email: z.string().email().optional(),
+        phone: z.string().max(50).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const matter = await ctx.prisma.matter.findUnique({
+        where: { id: input.matterId },
+      });
+
+      if (!matter) {
+        throw new TRPCError({
+          code: 'NOT_FOUND',
+          message: `Matter ${input.matterId} not found`,
+        });
+      }
+
+      // Create or find the contact
+      let contact = await ctx.prisma.contact.findFirst({
+        where: {
+          firstName: input.firstName,
+          lastName: input.lastName,
+          email: input.email ?? undefined,
+        },
+      });
+
+      if (!contact) {
+        contact = await ctx.prisma.contact.create({
+          data: {
+            firstName: input.firstName,
+            lastName: input.lastName,
+            email: input.email ?? null,
+            phoneMobile: input.phone ?? null,
+          },
+        });
+      }
+
+      // Map party role to Prisma roleType
+      const roleType = input.partyRole;
+      const adverseFlag = roleType === 'RESPONDENT';
+
+      const party = await ctx.prisma.matterParty.create({
+        data: {
+          matterId: input.matterId,
+          contactId: contact.id,
+          roleType,
+          adverseFlag,
+        },
+        include: { contact: true },
+      });
+
+      await emitAuditEvent(ctx.prisma, {
+        eventType: 'CREATED',
+        actorId: ctx.userId,
+        entityType: 'MatterParty',
+        entityId: party.id,
+        metadata: {
+          matterId: input.matterId,
+          contactId: contact.id,
+          partyRole: input.partyRole,
+        },
+      });
+
+      return party;
+    }),
+
+  /**
    * List matters with optional status and assignment filters.
    * Cursor-based pagination.
    */

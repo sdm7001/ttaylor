@@ -36,6 +36,67 @@ const discoveryStatusValues = [
 
 export const discoveryRouter = router({
   /**
+   * List all discovery requests across all matters (aggregate queue view).
+   * Powers the discovery queue page. Includes matter info, type, status, due date.
+   * Cursor-based pagination.
+   */
+  listQueue: protectedProcedure
+    .input(
+      z.object({
+        type: z.string().optional(),
+        status: z.string().optional(),
+        cursor: z.string().cuid().nullish(),
+        limit: z.number().int().min(1).max(100).default(25),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const { type, status, cursor, limit } = input;
+
+      const where: Record<string, unknown> = {};
+      if (type) where.requestType = type;
+      if (status) where.status = status;
+
+      const [items, total] = await Promise.all([
+        ctx.prisma.discoveryRequest.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          take: limit + 1,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+          include: {
+            matter: {
+              select: { id: true, title: true, causeNumber: true },
+            },
+            responses: {
+              select: { id: true },
+            },
+          },
+        }),
+        ctx.prisma.discoveryRequest.count({ where }),
+      ]);
+
+      let nextCursor: string | null = null;
+      if (items.length > limit) {
+        const last = items.pop()!;
+        nextCursor = last.id;
+      }
+
+      return {
+        items: items.map((req) => ({
+          id: req.id,
+          requestType: req.requestType,
+          status: req.status,
+          dueAt: req.dueAt,
+          servedAt: req.servedAt,
+          matter: req.matter,
+          responseCount: req.responses.length,
+          createdAt: req.createdAt,
+        })),
+        nextCursor,
+        total,
+      };
+    }),
+
+  /**
    * List discovery requests for a matter with optional filters.
    * Cursor-based pagination.
    */

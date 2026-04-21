@@ -20,6 +20,7 @@ import { filingRouter } from './routers/filing';
 import { portalRouter } from './routers/portal';
 import { searchRouter } from './routers/search';
 import { notesRouter } from './routers/notes';
+import { usersRouter } from './routers/users';
 
 export const appRouter = router({
   matters: mattersRouter,
@@ -37,6 +38,7 @@ export const appRouter = router({
   portal: portalRouter,
   search: searchRouter,
   notes: notesRouter,
+  users: usersRouter,
 });
 
 export type AppRouter = typeof appRouter;

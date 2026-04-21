@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useUser } from '@clerk/nextjs';
 import { PageHeader, Button, StatusPill, Card, EmptyState, Badge, LoadingSpinner } from '@ttaylor/ui';
 import {
   CheckCircle,
@@ -212,13 +213,14 @@ export default function FilingPacketDetailPage() {
     );
   }
 
-  // TODO: Detect user role from Clerk (useUser -> publicMetadata.role).
-  // For now, render all buttons -- the server enforces role requirements.
+  // Detect user role from Clerk for UI gating (server also enforces)
+  const { user } = useUser();
+  const isAttorneyUser = user?.publicMetadata?.role === 'ATTORNEY';
   const canSubmitForReview =
     packet.status === 'ASSEMBLING' || packet.status === 'ATTORNEY_REJECTED';
-  const canApprove = packet.status === 'READY_FOR_ATTORNEY_REVIEW';
-  const canReject = packet.status === 'READY_FOR_ATTORNEY_REVIEW';
-  const canSubmitToCourt = packet.status === 'ATTORNEY_APPROVED';
+  const canApprove = isAttorneyUser && packet.status === 'READY_FOR_ATTORNEY_REVIEW';
+  const canReject = isAttorneyUser && packet.status === 'READY_FOR_ATTORNEY_REVIEW';
+  const canSubmitToCourt = isAttorneyUser && packet.status === 'ATTORNEY_APPROVED';
 
   return (
     <>

@@ -29,6 +29,73 @@ const TRUST_ENTRY_TYPES = [ENTRY_TYPE_TRUST_DEPOSIT, ENTRY_TYPE_TRUST_DISBURSEME
 
 export const financialRouter = router({
   /**
+   * Get portfolio-wide financial summary across all matters.
+   * Returns total active matters, trust balance, outstanding, billed,
+   * and the 10 most recent financial entries with matter names.
+   */
+  getPortfolioSummary: protectedProcedure.query(async ({ ctx }) => {
+    // Count active matters
+    const totalActiveMatters = await ctx.prisma.matter.count({
+      where: {
+        status: { notIn: ['CLOSED', 'ARCHIVED'] },
+      },
+    });
+
+    // Fetch all financial entries
+    const allEntries = await ctx.prisma.financialEntry.findMany({
+      orderBy: { occurredAt: 'desc' },
+      include: {
+        matter: {
+          select: { id: true, title: true },
+        },
+      },
+    });
+
+    let totalBilled = new Prisma.Decimal(0);
+    let totalPaid = new Prisma.Decimal(0);
+    let totalTrustBalance = new Prisma.Decimal(0);
+
+    for (const entry of allEntries) {
+      switch (entry.entryType) {
+        case ENTRY_TYPE_INVOICE:
+          totalBilled = totalBilled.add(entry.amount);
+          break;
+        case ENTRY_TYPE_PAYMENT:
+          totalPaid = totalPaid.add(entry.amount);
+          break;
+        case ENTRY_TYPE_TRUST_DEPOSIT:
+          totalTrustBalance = totalTrustBalance.add(entry.amount);
+          break;
+        case ENTRY_TYPE_TRUST_DISBURSEMENT:
+          totalTrustBalance = totalTrustBalance.sub(entry.amount);
+          totalPaid = totalPaid.add(entry.amount);
+          break;
+      }
+    }
+
+    const totalOutstanding = totalBilled.sub(totalPaid);
+
+    // Recent 10 entries with matter names
+    const recentEntries = allEntries.slice(0, 10).map((entry) => ({
+      id: entry.id,
+      entryType: entry.entryType,
+      amount: entry.amount,
+      occurredAt: entry.occurredAt,
+      note: entry.note,
+      matterTitle: entry.matter?.title ?? null,
+      matterId: entry.matter?.id ?? null,
+    }));
+
+    return {
+      totalActiveMatters,
+      totalTrustBalance,
+      totalOutstanding,
+      totalBilled,
+      recentEntries,
+    };
+  }),
+
+  /**
    * Get financial summary for a matter.
    * Returns total billed, total paid, outstanding balance, trust balance,
    * and payment history summary.

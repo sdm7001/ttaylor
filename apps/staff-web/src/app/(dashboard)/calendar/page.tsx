@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { PageHeader, Button, Card, EmptyState } from '@ttaylor/ui';
 import { Plus, Clock, Gavel } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
@@ -36,10 +36,76 @@ function formatDate(dateStr: string): string {
 // ---------------------------------------------------------------------------
 
 export default function CalendarPage() {
+  const utils = trpc.useUtils();
   const { data, isLoading } = trpc.calendar.getUpcoming.useQuery(
     { days: 14, assignedToMe: false },
     { staleTime: 60_000 },
   );
+
+  // Matter list for the add-event dialog
+  const { data: mattersData } = trpc.matters.list.useQuery({ limit: 100 });
+  const matters = mattersData?.items ?? [];
+
+  // Add event dialog state
+  const [showAddEvent, setShowAddEvent] = useState(false);
+  const [eventMatterId, setEventMatterId] = useState('');
+  const [eventTitle, setEventTitle] = useState('');
+  const [eventType, setEventType] = useState('HEARING');
+  const [scheduledAt, setScheduledAt] = useState('');
+  const [eventDescription, setEventDescription] = useState('');
+  const [eventError, setEventError] = useState<string | null>(null);
+
+  const createEvent = trpc.calendar.createEvent.useMutation({
+    onSuccess: () => {
+      utils.calendar.getUpcoming.invalidate();
+      setShowAddEvent(false);
+      setEventMatterId('');
+      setEventTitle('');
+      setEventType('HEARING');
+      setScheduledAt('');
+      setEventDescription('');
+      setEventError(null);
+    },
+    onError: (err) => {
+      setEventError(err.message || 'Failed to create event');
+    },
+  });
+
+  const fieldStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '8px 12px',
+    fontSize: '14px',
+    border: '1px solid #e2e8f0',
+    borderRadius: '6px',
+    outline: 'none',
+    color: '#0f172a',
+    backgroundColor: '#ffffff',
+    boxSizing: 'border-box' as const,
+  };
+
+  function handleCreateEvent() {
+    setEventError(null);
+    if (!eventMatterId) {
+      setEventError('Please select a matter');
+      return;
+    }
+    if (!eventTitle.trim()) {
+      setEventError('Title is required');
+      return;
+    }
+    if (!scheduledAt) {
+      setEventError('Date/time is required');
+      return;
+    }
+    createEvent.mutate({
+      matterId: eventMatterId,
+      title: eventTitle.trim(),
+      eventType: eventType as any,
+      startAt: new Date(scheduledAt),
+      notes: eventDescription.trim() || undefined,
+      isCourtDate: eventType === 'HEARING',
+    });
+  }
 
   const deadlines = data?.deadlines ?? [];
   const courtEvents = data?.courtEvents ?? [];
@@ -49,12 +115,108 @@ export default function CalendarPage() {
       <PageHeader
         title="Calendar"
         actions={
-          <Button variant="primary" onClick={() => { /* TODO: open add event dialog */ }}>
+          <Button variant="primary" onClick={() => setShowAddEvent(true)}>
             <Plus size={16} style={{ marginRight: '6px' }} />
             Add Event
           </Button>
         }
       />
+
+      {/* Add Event dialog */}
+      {showAddEvent && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowAddEvent(false);
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '12px',
+              padding: '24px',
+              width: '480px',
+              maxWidth: '90vw',
+              boxShadow: '0 20px 60px rgba(0,0,0,0.15)',
+            }}
+          >
+            <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 700, color: '#0f172a' }}>
+              Add Event / Deadline
+            </h3>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>
+                Matter <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <select
+                style={{ ...fieldStyle, appearance: 'auto' as const }}
+                value={eventMatterId}
+                onChange={(e) => setEventMatterId(e.target.value)}
+              >
+                <option value="">Select matter...</option>
+                {matters.map((m: { id: string; title: string | null }) => (
+                  <option key={m.id} value={m.id}>
+                    {m.title ?? m.id}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>
+                Title <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <input style={fieldStyle} value={eventTitle} onChange={(e) => setEventTitle(e.target.value)} placeholder="e.g., Final Hearing" />
+            </div>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>
+                Event Type
+              </label>
+              <select style={{ ...fieldStyle, appearance: 'auto' as const }} value={eventType} onChange={(e) => setEventType(e.target.value)}>
+                <option value="HEARING">Hearing</option>
+                <option value="DEADLINE">Deadline</option>
+                <option value="MEDIATION">Mediation</option>
+                <option value="DEPOSITION">Deposition</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </div>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>
+                Date / Time <span style={{ color: '#dc2626' }}>*</span>
+              </label>
+              <input type="datetime-local" style={fieldStyle} value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} />
+            </div>
+            <div style={{ marginBottom: '12px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>
+                Description
+              </label>
+              <textarea
+                style={{ ...fieldStyle, minHeight: '60px', resize: 'vertical', fontFamily: 'inherit' }}
+                value={eventDescription}
+                onChange={(e) => setEventDescription(e.target.value)}
+              />
+            </div>
+            {eventError && (
+              <div style={{ marginBottom: '12px', fontSize: '13px', color: '#dc2626' }}>{eventError}</div>
+            )}
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <Button variant="secondary" size="sm" onClick={() => setShowAddEvent(false)}>Cancel</Button>
+              <Button variant="primary" size="sm" onClick={handleCreateEvent} disabled={createEvent.isPending}>
+                {createEvent.isPending ? 'Creating...' : 'Create Event'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Upcoming deadlines section */}
       <section style={{ marginBottom: '32px' }}>
