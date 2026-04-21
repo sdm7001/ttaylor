@@ -1,0 +1,30 @@
+{
+  "name": "ttaylor",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "dev:staff": "npm run dev --workspace=apps/staff-web",
+    "dev:portal": "npm run dev --workspace=apps/client-portal",
+    "build": "npm run build --workspaces --if-present",
+    "db:generate": "prisma generate --schema=database/schema/schema.prisma",
+    "db:migrate": "prisma migrate deploy --schema=database/schema/schema.prisma",
+    "db:push": "prisma db push --schema=database/schema/schema.prisma",
+    "db:seed": "tsx database/seeds/index.ts",
+    "test:unit": "jest --testPathPattern=tests/unit",
+    "test:integration": "jest --testPathPattern=tests/integration",
+    "test:e2e": "playwright test",
+    "lint": "eslint . --ext .ts,.tsx"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.45.0",
+    "@types/node": "^22.0.0",
+    "eslint": "^9.0.0",
+    "jest": "^29.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0"
+  }
+}

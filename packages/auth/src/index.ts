@@ -1,0 +1,1 @@
+// @ttaylor/auth — scaffold
