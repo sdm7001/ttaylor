@@ -129,6 +129,7 @@ export default function DashboardPage() {
 
       {/* Stats grid */}
       <div
+        className="stat-grid"
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',

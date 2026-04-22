@@ -122,7 +122,7 @@ const labelStyle: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   width: '100%',
   padding: '8px 12px',
-  fontSize: '14px',
+  fontSize: '16px',
   border: '1px solid #CBD5E1',
   borderRadius: '6px',
   color: '#0f172a',

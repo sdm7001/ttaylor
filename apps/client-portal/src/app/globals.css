@@ -1,0 +1,23 @@
+/* TTaylor Client Portal - Mobile Responsive Base */
+
+* { box-sizing: border-box; }
+
+@media (max-width: 768px) {
+  .desktop-only { display: none !important; }
+  .mobile-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .stat-grid { grid-template-columns: 1fr 1fr !important; }
+  .tab-bar {
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .tab-bar::-webkit-scrollbar { display: none; }
+}
+
+@media (min-width: 769px) {
+  .mobile-only { display: none !important; }
+  .mobile-nav-overlay { display: none !important; }
+  .mobile-top-bar { display: none !important; }
+}

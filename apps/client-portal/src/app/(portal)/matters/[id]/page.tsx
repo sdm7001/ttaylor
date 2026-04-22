@@ -115,7 +115,13 @@ export default function MatterDetailPage() {
         </div>
 
         <Card>
+          <style>{`
+            @media (max-width: 768px) {
+              .portal-detail-grid { grid-template-columns: 1fr !important; }
+            }
+          `}</style>
           <div
+            className="portal-detail-grid"
             style={{
               display: 'grid',
               gridTemplateColumns: '1fr 1fr',

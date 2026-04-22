@@ -74,7 +74,12 @@ function OverviewTab({ matter }: { matter: any }) {
   );
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+    <div className="overview-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+      <style>{`
+        @media (max-width: 768px) {
+          .overview-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
       <Card title="Case Information">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <InfoRow label="Status">
@@ -160,7 +165,7 @@ function PartiesTab({ parties, matterId }: { parties: any[]; matterId: string })
   const partyFieldStyle: React.CSSProperties = {
     width: '100%',
     padding: '8px 12px',
-    fontSize: '14px',
+    fontSize: '16px',
     border: '1px solid #e2e8f0',
     borderRadius: '6px',
     outline: 'none',
@@ -738,7 +743,7 @@ function CalendarTab({ matterId }: { matterId: string }) {
   const eventFieldStyle: React.CSSProperties = {
     width: '100%',
     padding: '8px 12px',
-    fontSize: '14px',
+    fontSize: '16px',
     border: '1px solid #e2e8f0',
     borderRadius: '6px',
     outline: 'none',
@@ -1056,7 +1061,7 @@ function FilingTab({ matterId, matter }: { matterId: string; matter: { court?: s
   const fieldStyle: React.CSSProperties = {
     width: '100%',
     padding: '8px 12px',
-    fontSize: '14px',
+    fontSize: '16px',
     border: '1px solid #e2e8f0',
     borderRadius: '6px',
     outline: 'none',
@@ -1384,7 +1389,7 @@ function NotesTab({ matterId }: { matterId: string }) {
   const fieldStyle: React.CSSProperties = {
     width: '100%',
     padding: '8px 12px',
-    fontSize: '14px',
+    fontSize: '16px',
     border: '1px solid #e2e8f0',
     borderRadius: '6px',
     outline: 'none',
@@ -1664,6 +1669,7 @@ export default function MatterDetailPage() {
 
       {/* Tab bar */}
       <div
+        className="tab-bar"
         style={{
           display: 'flex',
           gap: '2px',

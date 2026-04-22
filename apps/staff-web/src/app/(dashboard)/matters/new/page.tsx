@@ -192,7 +192,7 @@ function FormField({
 const inputStyle: React.CSSProperties = {
   width: '100%',
   padding: '8px 12px',
-  fontSize: '14px',
+  fontSize: '16px',
   border: '1px solid #e2e8f0',
   borderRadius: '6px',
   outline: 'none',
@@ -205,6 +205,8 @@ const inputErrorStyle: React.CSSProperties = {
   ...inputStyle,
   borderColor: '#dc2626',
 };
+
+/* fontSize 16px prevents iOS Safari auto-zoom on input focus */
 
 // ---------------------------------------------------------------------------
 // Page component

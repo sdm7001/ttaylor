@@ -19,7 +19,7 @@ import { trpc } from '../../../../lib/trpc';
 const fieldStyle: React.CSSProperties = {
   width: '100%',
   padding: '10px 12px',
-  fontSize: '14px',
+  fontSize: '16px',
   border: '1px solid #e2e8f0',
   borderRadius: '6px',
   outline: 'none',

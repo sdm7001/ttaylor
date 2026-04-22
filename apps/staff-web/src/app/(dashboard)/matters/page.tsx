@@ -9,6 +9,8 @@ import type { Matter } from '@ttaylor/domain';
 import { Plus } from 'lucide-react';
 import { trpc } from '@/lib/trpc';
 
+/* Columns marked desktop-only are hidden on mobile via the global CSS class */
+
 type StatusFilter = 'ALL' | 'OPEN' | 'ACTIVE' | 'CLOSED';
 
 const statusFilters: { label: string; value: StatusFilter }[] = [
@@ -120,6 +122,12 @@ export default function MattersPage() {
 
   return (
     <>
+      <style>{`
+        @media (max-width: 768px) {
+          .matters-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+          .matters-table-wrap table { min-width: 500px; }
+        }
+      `}</style>
       <PageHeader
         title="Matters"
         actions={
@@ -132,6 +140,7 @@ export default function MattersPage() {
 
       {/* Status filter tabs */}
       <div
+        className="tab-bar"
         style={{
           display: 'flex',
           gap: '4px',
@@ -165,16 +174,18 @@ export default function MattersPage() {
         ))}
       </div>
 
-      <DataTable<MatterRow>
-        columns={columns}
-        data={matters}
-        loading={isLoading}
-        emptyMessage="No matters found"
-        onRowClick={(matter: MatterRow) => {
-          router.push(`/matters/${matter.id}`);
-        }}
-        rowKey={(row: MatterRow) => row.id}
-      />
+      <div className="matters-table-wrap">
+        <DataTable<MatterRow>
+          columns={columns}
+          data={matters}
+          loading={isLoading}
+          emptyMessage="No matters found"
+          onRowClick={(matter: MatterRow) => {
+            router.push(`/matters/${matter.id}`);
+          }}
+          rowKey={(row: MatterRow) => row.id}
+        />
+      </div>
     </>
   );
 }
