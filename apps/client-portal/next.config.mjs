@@ -1,6 +1,5 @@
-import type { NextConfig } from 'next';
-
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   transpilePackages: ['@ttaylor/ui', '@ttaylor/domain'],
   typescript: {
     ignoreBuildErrors: false,
