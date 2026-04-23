@@ -21,6 +21,12 @@ export const PERMISSIONS = {
   DOCUMENTS_APPROVE: 'documents.approve',
   DOCUMENTS_REJECT: 'documents.reject',
 
+  // Templates
+  TEMPLATES_READ: 'templates.read',
+  TEMPLATES_CREATE: 'templates.create',
+  TEMPLATES_UPDATE: 'templates.update',
+  TEMPLATES_DELETE: 'templates.delete',
+
   // Filing
   FILING_CREATE: 'filing.create',
   FILING_SUBMIT_ATTORNEY: 'filing.submitAttorney',

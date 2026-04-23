@@ -30,6 +30,7 @@ const navItems = [
   { label: 'Matters', href: '/matters', icon: Briefcase },
   { label: 'Contacts', href: '/contacts', icon: Users },
   { label: 'Documents', href: '/documents', icon: FileText },
+  { label: 'Templates', href: '/templates', icon: FileText },
   { label: 'Filing', href: '/filing', icon: Send },
   { label: 'Calendar', href: '/calendar', icon: CalendarDays },
   { label: 'Discovery', href: '/discovery', icon: Search },
