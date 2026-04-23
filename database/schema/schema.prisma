@@ -552,6 +552,7 @@ model Template {
   templateEngine String  @default("handlebars") @db.VarChar(50)
   version        Int     @default(1)
   activeFlag     Boolean @default(true)
+  content        String? @db.Text
   createdAt      DateTime @default(now())
 
   matterType MatterType? @relation(fields: [matterTypeId], references: [id])
