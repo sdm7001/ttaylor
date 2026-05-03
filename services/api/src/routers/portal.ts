@@ -8,6 +8,60 @@ import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
 import { router, protectedProcedure, requireRole } from '../trpc';
 import { emitAuditEvent } from './audit';
+import type { PrismaClient } from '@prisma/client';
+
+// ---------------------------------------------------------------------------
+// Access guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Verifies the caller is authorized to access a given matter through the portal.
+ *
+ * Staff users must be assigned to the matter via MatterAssignment.
+ * Portal clients are accepted if the matter has an active PortalAccess grant.
+ *
+ * NOTE: Per-client user scoping for portal clients requires adding a `userId`
+ * field to the `PortalAccess` model (schema migration). Until then, any
+ * authenticated portal client can access matters that have been explicitly
+ * opened for portal access by staff.
+ */
+async function assertPortalAccess(
+  prisma: PrismaClient,
+  matterId: string,
+  userId: string | null,
+  roles: string[],
+): Promise<void> {
+  if (!userId) {
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: 'Authentication required' });
+  }
+
+  const staffRoles = ['ATTORNEY', 'PARALEGAL', 'LEGAL_ASSISTANT', 'RECEPTIONIST', 'ADMIN'];
+  const isStaff = roles.some((r) => staffRoles.includes(r));
+
+  if (isStaff) {
+    const assignment = await prisma.matterAssignment.findFirst({
+      where: { matterId, userId },
+    });
+    if (!assignment) {
+      throw new TRPCError({
+        code: 'FORBIDDEN',
+        message: 'You are not assigned to this matter',
+      });
+    }
+    return;
+  }
+
+  // Portal client: matter must have been explicitly shared via PortalAccess
+  const access = await prisma.portalAccess.findFirst({
+    where: { matterId },
+  });
+  if (!access) {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'Portal access has not been granted for this matter',
+    });
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Router
@@ -27,6 +81,8 @@ export const portalRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      await assertPortalAccess(ctx.prisma, input.matterId, ctx.userId, ctx.roles);
+
       // Verify matter exists
       const matter = await ctx.prisma.matter.findUnique({
         where: { id: input.matterId },
@@ -60,7 +116,7 @@ export const portalRouter = router({
         questionnaire = await ctx.prisma.intakeQuestionnaire.create({
           data: {
             matterId: input.matterId,
-            submittedByUserId: ctx.userId,
+            submittedByUserId: ctx.userId!,
             answersJson: input.answers,
             submittedAt: new Date(),
           },
@@ -69,7 +125,7 @@ export const portalRouter = router({
 
       await emitAuditEvent(ctx.prisma, {
         eventType: 'CREATED',
-        actorId: ctx.userId,
+        actorId: ctx.userId!,
         entityType: 'IntakeQuestionnaire',
         entityId: questionnaire.id,
         metadata: {
@@ -91,6 +147,8 @@ export const portalRouter = router({
   getMessages: protectedProcedure
     .input(z.object({ matterId: z.string() }))
     .query(async ({ ctx, input }) => {
+      await assertPortalAccess(ctx.prisma, input.matterId, ctx.userId, ctx.roles);
+
       // Find or return null for the portal thread
       const thread = await ctx.prisma.communicationThread.findFirst({
         where: {
@@ -138,6 +196,8 @@ export const portalRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      await assertPortalAccess(ctx.prisma, input.matterId, ctx.userId, ctx.roles);
+
       // Find existing portal thread or create one
       let thread = await ctx.prisma.communicationThread.findFirst({
         where: {
@@ -244,7 +304,7 @@ export const portalRouter = router({
 
       await emitAuditEvent(ctx.prisma, {
         eventType: 'PORTAL_INVITED',
-        actorId: ctx.userId,
+        actorId: ctx.userId!,
         entityType: 'Document',
         entityId: input.documentId,
         metadata: {
@@ -270,6 +330,8 @@ export const portalRouter = router({
   getSharedDocuments: protectedProcedure
     .input(z.object({ matterId: z.string() }))
     .query(async ({ ctx, input }) => {
+      await assertPortalAccess(ctx.prisma, input.matterId, ctx.userId, ctx.roles);
+
       // Find all documents in this matter that have been shared (via audit events)
       const shareEvents = await ctx.prisma.auditEvent.findMany({
         where: {
